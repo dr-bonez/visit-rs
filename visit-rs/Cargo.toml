@@ -1,0 +1,11 @@
+[package]
+name = "visit-rs"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+nightly = []
+
+[dependencies]
+futures = "0.3"
+visit-rs-derive = { version = "0.1.0", path = "../visit-rs-derive" }
