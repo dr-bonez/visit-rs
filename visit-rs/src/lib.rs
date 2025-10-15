@@ -27,19 +27,6 @@ pub trait VisitAsync<V: Visitor> {
         V: Send,
         V::Result: Send;
 }
-impl<T, V: Visitor> VisitAsync<V> for T
-where
-    T: Visit<V>,
-{
-    fn visit_async<'a>(&'a self, visitor: &'a mut V) -> impl Future<Output = V::Result> + Send + 'a
-    where
-        V: Send,
-        V::Result: Send,
-    {
-        let res = self.visit(visitor);
-        async move { res }
-    }
-}
 
 pub trait VisitFields<V: Visitor> {
     fn visit_fields<'a>(&'a self, visitor: &'a mut V) -> impl Iterator<Item = V::Result> + 'a;
