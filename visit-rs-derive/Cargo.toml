@@ -2,6 +2,8 @@
 name = "visit-rs-derive"
 version = "0.1.0"
 edition = "2024"
+description = "Procedural macros for visit-rs"
+license = "MIT"
 
 [lib]
 proc-macro = true

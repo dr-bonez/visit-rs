@@ -2,6 +2,10 @@
 name = "visit-rs"
 version = "0.1.0"
 edition = "2024"
+description = "A generic visitor pattern library for Rust"
+license = "MIT"
+documentation = "https://docs.rs/visit-rs"
+repository = "https://github.com/dr-bonez/visit-rs"
 
 [features]
 default = ["serde"]
