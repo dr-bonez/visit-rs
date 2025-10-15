@@ -11,7 +11,6 @@ use syn::{
 fn make_impl(
     input: &DeriveInput,
     fields: &Fields,
-    res_ty: &Type,
     trait_path_fields: &Path,
     trait_path: &Path,
     named: Option<&Path>,
@@ -23,7 +22,7 @@ fn make_impl(
 
     let mut generics = input.generics.clone();
 
-    generics.params.push(syn::parse_quote! { Visitor });
+    generics.params.push(syn::parse_quote! { __visit_rs__V });
 
     let predicates = &mut generics
         .where_clause
@@ -33,6 +32,7 @@ fn make_impl(
         })
         .predicates;
 
+    predicates.push(syn::parse_quote! { __visit_rs__V: visit_rs::Visitor });
     predicates.extend(extra_predicates.into_iter());
 
     let mut ty_set = HashSet::new();
@@ -42,48 +42,16 @@ fn make_impl(
             continue;
         }
         if let Some(named) = named {
-            predicates.push(syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, #ty>: #trait_path<Visitor, Result = #res_ty> });
+            predicates.push(syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, #ty>: #trait_path<__visit_rs__V> });
         } else {
-            predicates.push(syn::parse_quote! { #ty: #trait_path<Visitor, Result = #res_ty> });
+            predicates.push(syn::parse_quote! { #ty: #trait_path<__visit_rs__V> });
         }
     }
 
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     quote! {
-        impl #impl_generics #trait_path_fields<Visitor> for #ident #ty_generics #where_clause
-    }
-}
-
-struct StructAttrs {
-    res_ty: Type,
-    res: TokenStream,
-    try_token: TokenStream,
-}
-
-fn parse_attrs(attrs: &[Attribute]) -> Result<StructAttrs, syn::Error> {
-    if let Some(ty) = attrs.iter().find_map(|attr| {
-        attr.path()
-            .is_ident("visit")
-            .then(|| {
-                attr.parse_args::<MetaList>().ok().and_then(|meta| {
-                    meta.path
-                        .is_ident("try")
-                        .then(|| meta.parse_args::<Type>().ok())
-                        .flatten()
-                })
-            })
-            .flatten()
-    }) {
-        // (
-        //     syn::parse_quote_spanned! { ty.span() => Result<(), #ty> },
-        //     quote_spanned! { ty.span() => Ok(()) },
-        //     quote_spanned! { ty.span() => ? },
-        // )
-        todo!()
-    } else {
-        // (syn::parse_quote! { () }, quote! { () }, quote! {})
-        todo!()
+        impl #impl_generics #trait_path_fields<__visit_rs__V> for #ident #ty_generics #where_clause
     }
 }
 
@@ -144,59 +112,92 @@ pub fn derive_visit_fields_(input: proc_macro::TokenStream) -> proc_macro::Token
     let all_impls = match (|| {
         Ok::<_, syn::Error>([
             derive_visit_fields(&ast, data)?,
+            derive_visit_fields_async(&ast, data)?,
             derive_visit_fields_named(&ast, data)?,
-            derive_visit_mut_fields(&ast, data)?,
-            derive_visit_mut_fields_named(&ast, data)?,
-            derive_async_visit_fields(&ast, data)?,
-            derive_async_visit_fields_named(&ast, data)?,
-            derive_parallel_async_visit_fields(&ast, data)?,
-            derive_parallel_async_visit_fields_named(&ast, data)?,
-            derive_async_visit_mut_fields(&ast, data)?,
-            derive_async_visit_mut_fields_named(&ast, data)?,
+            derive_visit_fields_named_async(&ast, data)?,
         ])
     })() {
         Ok(a) => a,
         Err(e) => return e.to_compile_error().into(),
     };
 
-    panic!(
-        "{}",
-        proc_macro::TokenStream::from(quote! {
-            #(#all_impls)*
-        })
-    )
+    // panic!(
+    //     "{}",
+    proc_macro::TokenStream::from(quote! {
+        #(#all_impls)*
+    })
+    // )
 }
 
 fn derive_visit_fields(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
     let impl_t = make_impl(
         &ast,
         &data.fields,
-        &res_ty,
         &syn::parse_quote! { visit_rs::VisitFields },
         &syn::parse_quote! { visit_rs::Visit },
         None,
         [],
     );
 
-    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
+    let visit_fields_impl = field_idx_iter(&data.fields).enumerate().map(|(num, idx)| {
         quote! {
-            visit_rs::Visit::<Visitor>::visit(&self.#idx, visitor) #try_token;
+            #num => {
+                pos += 1;
+                Some(visit_rs::Visit::visit(&self.#idx, visitor))
+            }
         }
     });
 
     Ok(quote! {
         #impl_t {
-            type Result = #res_ty;
-            fn visit_fields(&self, visitor: &mut Visitor) -> Self::Result {
-                #(#visit_fields_impl)*
+            fn visit_fields<'__visit_rs__a>(
+                &'__visit_rs__a self,
+                visitor: &'__visit_rs__a mut __visit_rs__V
+            ) -> impl Iterator<Item = <__visit_rs__V as visit_rs::Visitor>::Result> {
+                std::iter::from_fn({
+                    let mut pos = 0;
+                    move || match pos {
+                        #(#visit_fields_impl)*
+                        _ => None,
+                    }
+                })
+            }
+        }
+    })
+}
 
-                #res
+fn derive_visit_fields_async(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsAsync },
+        &syn::parse_quote! { visit_rs::VisitAsync },
+        None,
+        [],
+    );
+
+    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
+        quote! {
+            yield visit_rs::VisitAsync::visit_async(&self.#idx, visitor).await;
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_async<'__visit_rs__a>(
+                &'__visit_rs__a self,
+                visitor: &'__visit_rs__a mut __visit_rs__V,
+            ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
+            where
+                __visit_rs__V: Send,
+                <__visit_rs__V as visit_rs::Visitor>::Result: Send,
+            {
+                visit_rs::lib::async_stream::stream! {
+                    #(#visit_fields_impl)*
+                }
             }
         }
     })
@@ -206,414 +207,83 @@ fn derive_visit_fields_named(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
     let impl_t = make_impl(
         &ast,
         &data.fields,
-        &res_ty,
         &syn::parse_quote! { visit_rs::VisitFieldsNamed },
         &syn::parse_quote! { visit_rs::Visit },
         Some(&syn::parse_quote! { visit_rs::Named }),
         [],
     );
 
-    let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
-        quote! {
-            visit_rs::Visit::<Visitor>::visit(&visit_rs::Named {
-                name: #name,
-                value: &self.#idx,
-            }, visitor) #try_token;
-        }
-    });
+    let visit_fields_named_impl =
+        field_name_idx_iter(&data.fields)
+            .enumerate()
+            .map(|(num, (name, idx))| {
+                quote! {
+                    #num => {
+                        pos += 1;
+                        Some(visit_rs::Visit::visit(&visit_rs::Named {
+                            name: #name,
+                            value: &self.#idx,
+                        }, visitor))
+                    }
+                }
+            });
 
     Ok(quote! {
         #impl_t {
-            type Result = #res_ty;
-            fn visit_fields_named(&self, visitor: &mut Visitor) -> Self::Result {
-                #(#visit_fields_named_impl)*
-
-                #res
+            fn visit_fields_named<'__visit_rs__a>(
+                &'__visit_rs__a self,
+                visitor: &'__visit_rs__a mut __visit_rs__V
+            ) -> impl Iterator<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + '__visit_rs__a {
+                std::iter::from_fn({
+                    let mut pos = 0;
+                    move || match pos {
+                        #(#visit_fields_named_impl)*
+                        _ => None,
+                    }
+                })
             }
         }
     })
 }
 
-fn derive_visit_mut_fields(
+fn derive_visit_fields_named_async(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
     let impl_t = make_impl(
         &ast,
         &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::VisitMutFields },
-        &syn::parse_quote! { visit_rs::VisitMut },
-        None,
-        [],
-    );
-
-    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
-        quote! {
-            visit_rs::VisitMut::<Visitor>::visit_mut(&mut self.#idx, visitor) #try_token;
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-            fn visit_mut_fields(&mut self, visitor: &mut Visitor) -> Self::Result {
-                #(#visit_fields_impl)*
-
-                #res
-            }
-        }
-    })
-}
-
-fn derive_visit_mut_fields_named(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::VisitMutFieldsNamed },
-        &syn::parse_quote! { visit_rs::VisitMut },
-        Some(&syn::parse_quote! { visit_rs::NamedMut }),
+        &syn::parse_quote! { visit_rs::VisitFieldsNamedAsync },
+        &syn::parse_quote! { visit_rs::VisitAsync },
+        Some(&syn::parse_quote! { visit_rs::Named }),
         [],
     );
 
     let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
         quote! {
-            visit_rs::VisitMut::<Visitor>::visit_mut(&mut visit_rs::NamedMut {
-                name: #name,
-                value: &mut self.#idx,
-            }, visitor) #try_token;
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-            fn visit_mut_fields_named(&mut self, visitor: &mut Visitor) -> Self::Result {
-                #(#visit_fields_named_impl)*
-
-                #res
-            }
-        }
-    })
-}
-
-fn derive_async_visit_fields(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::AsyncVisitFields },
-        &syn::parse_quote! { visit_rs::AsyncVisit },
-        None,
-        [syn::parse_quote! { Visitor: Send }],
-    );
-
-    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
-        quote! {
-            visit_rs::AsyncVisit::visit_async(&self.#idx, visitor).await #try_token;
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-
-            async fn visit_fields_async(
-                &self,
-                visitor: &mut Visitor,
-            ) -> Self::Result {
-                #(#visit_fields_impl)*
-
-                #res
-            }
-        }
-    })
-}
-
-fn derive_async_visit_fields_named(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::AsyncVisitFieldsNamed },
-        &syn::parse_quote! { visit_rs::AsyncVisit },
-        Some(&syn::parse_quote! { visit_rs::Named }),
-        [syn::parse_quote! { Visitor: Send }],
-    );
-
-    let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
-        quote! {
-            visit_rs::AsyncVisit::visit_async(&visit_rs::Named {
+            yield visit_rs::VisitAsync::visit_async(&visit_rs::Named {
                 name: #name,
                 value: &self.#idx,
-            }, visitor).await #try_token;
+            }, visitor).await;
         }
     });
 
     Ok(quote! {
         #impl_t {
-            type Result = #res_ty;
-
-            async fn visit_fields_named_async(
-                &self,
-                visitor: &mut Visitor,
-            ) -> Self::Result {
-                #(#visit_fields_named_impl)*
-
-                #res
-            }
-        }
-    })
-}
-
-fn derive_parallel_async_visit_fields(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::ParallelAsyncVisitFields },
-        &syn::parse_quote! { visit_rs::AsyncVisit },
-        None,
-        [syn::parse_quote! { Visitor: Send + Clone }],
-    );
-
-    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
-        quote! {
-            futures.push_back(
-                visit_rs::lib::futures::FutureExt::boxed({
-                    let mut visitor = visitor.clone();
-                    async move { visit_rs::AsyncVisit::visit_async(&self.#idx, &mut visitor).await }
-                })
-            );
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-
-            fn parallel_visit_fields_async<'__visit_rs__a>(
+            fn visit_fields_named_async<'__visit_rs__a>(
                 &'__visit_rs__a self,
-                visitor: &Visitor,
-            ) -> impl std::future::Future<Output = Self::Result> + Send + '__visit_rs__a
+                visitor: &'__visit_rs__a mut __visit_rs__V,
+            ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
             where
-                Visitor: '__visit_rs__a,
+                __visit_rs__V: Send,
+                <__visit_rs__V as visit_rs::Visitor>::Result: Send,
             {
-                let mut futures = visit_rs::lib::futures::stream::FuturesOrdered::new();
-
-                #(#visit_fields_impl)*
-
-                async move {
-                    while let Some(res) = visit_rs::lib::futures::stream::StreamExt::next(&mut futures).await {
-                        res #try_token;
-                    }
-                    #res
+                visit_rs::lib::async_stream::stream! {
+                    #(#visit_fields_named_impl)*
                 }
-            }
-        }
-    })
-}
-
-fn derive_parallel_async_visit_fields_named(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::ParallelAsyncVisitFieldsNamed },
-        &syn::parse_quote! { visit_rs::AsyncVisit },
-        Some(&syn::parse_quote! { visit_rs::Named }),
-        [syn::parse_quote! { Visitor: Send + Clone }],
-    );
-
-    let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
-        quote! {
-            futures.push_back(
-                visit_rs::lib::futures::FutureExt::boxed({
-                    let mut visitor = visitor.clone();
-                    async move {
-                        visit_rs::AsyncVisit::visit_async(
-                            &visit_rs::Named {
-                                name: #name,
-                                value: &self.#idx,
-                            },
-                            &mut visitor,
-                        )
-                        .await
-                    }
-                })
-            );
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-
-            fn parallel_visit_fields_named_async<'__visit_rs__a>(
-                &'__visit_rs__a self,
-                visitor: &Visitor,
-            ) -> impl std::future::Future<Output = Self::Result> + Send + '__visit_rs__a
-            where
-                Visitor: '__visit_rs__a,
-            {
-                let mut futures = visit_rs::lib::futures::stream::FuturesOrdered::new();
-
-                #(#visit_fields_named_impl)*
-
-                async move {
-                    while let Some(res) = visit_rs::lib::futures::stream::StreamExt::next(&mut futures).await {
-                        res #try_token;
-                    }
-                    #res
-                }
-            }
-        }
-    })
-}
-
-fn derive_async_visit_mut_fields(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::AsyncVisitMutFields },
-        &syn::parse_quote! { visit_rs::AsyncVisitMut },
-        None,
-        [syn::parse_quote! { Visitor: Send }],
-    );
-
-    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
-        quote! {
-            visit_rs::AsyncVisitMut::visit_mut_async(&mut self.#idx, visitor).await #try_token;
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-
-            async fn visit_mut_fields_async(
-                &mut self,
-                visitor: &mut Visitor,
-            ) -> Self::Result {
-                #(#visit_fields_impl)*
-
-                #res
-            }
-        }
-    })
-}
-
-fn derive_async_visit_mut_fields_named(
-    ast: &DeriveInput,
-    data: &DataStruct,
-) -> Result<TokenStream, syn::Error> {
-    let StructAttrs {
-        res_ty,
-        res,
-        try_token,
-    } = parse_attrs(&ast.attrs)?;
-
-    let impl_t = make_impl(
-        &ast,
-        &data.fields,
-        &res_ty,
-        &syn::parse_quote! { visit_rs::AsyncVisitMutFieldsNamed },
-        &syn::parse_quote! { visit_rs::AsyncVisitMut },
-        Some(&syn::parse_quote! { visit_rs::NamedMut }),
-        [syn::parse_quote! { Visitor: Send }],
-    );
-
-    let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
-        quote! {
-            visit_rs::AsyncVisitMut::visit_mut_async(&mut visit_rs::NamedMut {
-                name: #name,
-                value: &mut self.#idx,
-            }, visitor).await #try_token;
-        }
-    });
-
-    Ok(quote! {
-        #impl_t {
-            type Result = #res_ty;
-
-            async fn visit_mut_fields_named_async(
-                &mut self,
-                visitor: &mut Visitor,
-            ) -> Self::Result {
-                #(#visit_fields_named_impl)*
-
-                #res
             }
         }
     })
