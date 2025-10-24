@@ -1,6 +1,6 @@
 [package]
 name = "visit-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A generic visitor pattern library for Rust"
 license = "MIT"

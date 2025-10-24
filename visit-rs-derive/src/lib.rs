@@ -4,8 +4,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::{
-    Attribute, DataStruct, DeriveInput, Fields, Ident, MetaList, Path, Type, WhereClause,
-    WherePredicate,
+    parse_quote, Attribute, DataStruct, DeriveInput, Fields, Ident, MetaList, Path, Type,
+    WhereClause, WherePredicate,
 };
 
 fn make_impl(
@@ -14,7 +14,7 @@ fn make_impl(
     trait_path_fields: &Path,
     trait_path: &Path,
     named: Option<&Path>,
-    extra_predicates: impl IntoIterator<Item = WherePredicate>,
+    sync: bool,
 ) -> TokenStream {
     let ident = &input.ident;
 
@@ -33,7 +33,11 @@ fn make_impl(
         .predicates;
 
     predicates.push(syn::parse_quote! { __visit_rs__V: visit_rs::Visitor });
-    predicates.extend(extra_predicates.into_iter());
+    if sync {
+        predicates.extend(fields.iter().map(|f| &f.ty).map(|t| -> WherePredicate {
+            parse_quote! { #t: Sync }
+        }));
+    }
 
     let mut ty_set = HashSet::new();
     for (_, field) in field_iter(fields) {
@@ -136,7 +140,7 @@ fn derive_visit_fields(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStre
         &syn::parse_quote! { visit_rs::VisitFields },
         &syn::parse_quote! { visit_rs::Visit },
         None,
-        [],
+        false,
     );
 
     let visit_fields_impl = field_idx_iter(&data.fields).enumerate().map(|(num, idx)| {
@@ -176,7 +180,7 @@ fn derive_visit_fields_async(
         &syn::parse_quote! { visit_rs::VisitFieldsAsync },
         &syn::parse_quote! { visit_rs::VisitAsync },
         None,
-        [],
+        true,
     );
 
     let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
@@ -213,7 +217,7 @@ fn derive_visit_fields_named(
         &syn::parse_quote! { visit_rs::VisitFieldsNamed },
         &syn::parse_quote! { visit_rs::Visit },
         Some(&syn::parse_quote! { visit_rs::Named }),
-        [],
+        false,
     );
 
     let visit_fields_named_impl =
@@ -259,7 +263,7 @@ fn derive_visit_fields_named_async(
         &syn::parse_quote! { visit_rs::VisitFieldsNamedAsync },
         &syn::parse_quote! { visit_rs::VisitAsync },
         Some(&syn::parse_quote! { visit_rs::Named }),
-        [],
+        true,
     );
 
     let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
