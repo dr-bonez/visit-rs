@@ -1,12 +1,8 @@
 use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned};
-use syn::spanned::Spanned;
-use syn::{
-    parse_quote, Attribute, DataStruct, DeriveInput, Fields, Ident, MetaList, Path, Type,
-    WhereClause, WherePredicate,
-};
+use quote::quote;
+use syn::{DataStruct, DeriveInput, Fields, Ident, Path, WhereClause, WherePredicate, parse_quote};
 
 fn make_impl(
     input: &DeriveInput,
@@ -15,6 +11,7 @@ fn make_impl(
     trait_path: &Path,
     named: Option<&Path>,
     sync: bool,
+    is_static: bool,
 ) -> TokenStream {
     let ident = &input.ident;
 
@@ -46,9 +43,17 @@ fn make_impl(
             continue;
         }
         if let Some(named) = named {
-            predicates.push(syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, #ty>: #trait_path<__visit_rs__V> });
+            if is_static {
+                predicates.push(syn::parse_quote! { visit_rs::NamedStatic<#ty>: #trait_path<__visit_rs__V> });
+            } else {
+                predicates.push(syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, #ty>: #trait_path<__visit_rs__V> });
+            }
         } else {
-            predicates.push(syn::parse_quote! { #ty: #trait_path<__visit_rs__V> });
+            if is_static {
+                predicates.push(syn::parse_quote! { visit_rs::Static<#ty>: #trait_path<__visit_rs__V> });
+            } else {
+                predicates.push(syn::parse_quote! { #ty: #trait_path<__visit_rs__V> });
+            }
         }
     }
 
@@ -119,6 +124,10 @@ pub fn derive_visit_fields_(input: proc_macro::TokenStream) -> proc_macro::Token
             derive_visit_fields_async(&ast, data)?,
             derive_visit_fields_named(&ast, data)?,
             derive_visit_fields_named_async(&ast, data)?,
+            derive_visit_fields_static(&ast, data)?,
+            derive_visit_fields_static_async(&ast, data)?,
+            derive_visit_fields_static_named(&ast, data)?,
+            derive_visit_fields_static_named_async(&ast, data)?,
         ])
     })() {
         Ok(a) => a,
@@ -140,6 +149,7 @@ fn derive_visit_fields(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStre
         &syn::parse_quote! { visit_rs::VisitFields },
         &syn::parse_quote! { visit_rs::Visit },
         None,
+        false,
         false,
     );
 
@@ -181,6 +191,7 @@ fn derive_visit_fields_async(
         &syn::parse_quote! { visit_rs::VisitAsync },
         None,
         true,
+        false,
     );
 
     let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
@@ -217,6 +228,7 @@ fn derive_visit_fields_named(
         &syn::parse_quote! { visit_rs::VisitFieldsNamed },
         &syn::parse_quote! { visit_rs::Visit },
         Some(&syn::parse_quote! { visit_rs::Named }),
+        false,
         false,
     );
 
@@ -264,6 +276,7 @@ fn derive_visit_fields_named_async(
         &syn::parse_quote! { visit_rs::VisitAsync },
         Some(&syn::parse_quote! { visit_rs::Named }),
         true,
+        false,
     );
 
     let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
@@ -279,6 +292,188 @@ fn derive_visit_fields_named_async(
         #impl_t {
             fn visit_fields_named_async<'__visit_rs__a>(
                 &'__visit_rs__a self,
+                visitor: &'__visit_rs__a mut __visit_rs__V,
+            ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
+            where
+                __visit_rs__V: Send,
+                <__visit_rs__V as visit_rs::Visitor>::Result: Send,
+            {
+                visit_rs::lib::async_stream::stream! {
+                    #(#visit_fields_named_impl)*
+                }
+            }
+        }
+    })
+}
+
+fn derive_visit_fields_static(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsStatic },
+        &syn::parse_quote! { visit_rs::Visit },
+        None,
+        false,
+        true,
+    );
+
+    let field_types: Vec<_> = field_iter(&data.fields)
+        .map(|(_, field)| &field.ty)
+        .collect();
+    let visit_fields_impl = field_types.iter().enumerate().map(|(num, ty)| {
+        quote! {
+            #num => {
+                pos += 1;
+                Some(visit_rs::Visit::visit(&visit_rs::Static::<#ty>::new(), visitor))
+            }
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_static<'__visit_rs__a>(
+                visitor: &'__visit_rs__a mut __visit_rs__V
+            ) -> impl Iterator<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + '__visit_rs__a {
+                std::iter::from_fn({
+                    let mut pos = 0;
+                    move || match pos {
+                        #(#visit_fields_impl)*
+                        _ => None,
+                    }
+                })
+            }
+        }
+    })
+}
+
+fn derive_visit_fields_static_async(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsStaticAsync },
+        &syn::parse_quote! { visit_rs::VisitAsync },
+        None,
+        true,
+        true,
+    );
+
+    let field_types: Vec<_> = field_iter(&data.fields)
+        .map(|(_, field)| &field.ty)
+        .collect();
+    let visit_fields_impl = field_types.iter().map(|ty| {
+        quote! {
+            yield visit_rs::VisitAsync::visit_async(&visit_rs::Static::<#ty>::new(), visitor).await;
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_static_async<'__visit_rs__a>(
+                visitor: &'__visit_rs__a mut __visit_rs__V,
+            ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
+            where
+                __visit_rs__V: Send,
+                <__visit_rs__V as visit_rs::Visitor>::Result: Send,
+            {
+                visit_rs::lib::async_stream::stream! {
+                    #(#visit_fields_impl)*
+                }
+            }
+        }
+    })
+}
+
+fn derive_visit_fields_static_named(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsStaticNamed },
+        &syn::parse_quote! { visit_rs::Visit },
+        Some(&syn::parse_quote! { visit_rs::NamedStatic }),
+        false,
+        true,
+    );
+
+    let field_name_type_iter = field_iter(&data.fields).map(|(_, field)| {
+        let field_name = &field.ident;
+        let ty = &field.ty;
+        let name = if let Some(name) = field_name {
+            quote! { Some(stringify!(#name)) }
+        } else {
+            quote! { None }
+        };
+        (name, ty)
+    });
+
+    let visit_fields_named_impl = field_name_type_iter.enumerate().map(|(num, (name, ty))| {
+        quote! {
+            #num => {
+                pos += 1;
+                Some(visit_rs::Visit::visit(&visit_rs::NamedStatic::<#ty>::new(#name), visitor))
+            }
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_static_named<'__visit_rs__a>(
+                visitor: &'__visit_rs__a mut __visit_rs__V
+            ) -> impl Iterator<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + '__visit_rs__a {
+                std::iter::from_fn({
+                    let mut pos = 0;
+                    move || match pos {
+                        #(#visit_fields_named_impl)*
+                        _ => None,
+                    }
+                })
+            }
+        }
+    })
+}
+
+fn derive_visit_fields_static_named_async(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsStaticNamedAsync },
+        &syn::parse_quote! { visit_rs::VisitAsync },
+        Some(&syn::parse_quote! { visit_rs::NamedStatic }),
+        true,
+        true,
+    );
+
+    let field_name_type_iter = field_iter(&data.fields).map(|(_, field)| {
+        let field_name = &field.ident;
+        let ty = &field.ty;
+        let name = if let Some(name) = field_name {
+            quote! { Some(stringify!(#name)) }
+        } else {
+            quote! { None }
+        };
+        (name, ty)
+    });
+
+    let visit_fields_named_impl = field_name_type_iter.map(|(name, ty)| {
+        quote! {
+            yield visit_rs::VisitAsync::visit_async(&visit_rs::NamedStatic::<#ty>::new(#name), visitor).await;
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_static_named_async<'__visit_rs__a>(
                 visitor: &'__visit_rs__a mut __visit_rs__V,
             ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
             where

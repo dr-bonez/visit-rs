@@ -1,5 +1,3 @@
-#![feature(iter_macro, coroutines)]
-
 use std::io::Write;
 use std::pin;
 
