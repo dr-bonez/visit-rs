@@ -231,6 +231,10 @@ fn derive_visit_fields_async(
             {
                 visit_rs::lib::async_stream::stream! {
                     #(#visit_fields_impl)*
+                    #[allow(unreachable_code)]
+                    if false {
+                        yield unreachable!() as <__visit_rs__V as visit_rs::Visitor>::Result
+                    }
                 }
             }
         }
@@ -319,6 +323,10 @@ fn derive_visit_fields_named_async(
             {
                 visit_rs::lib::async_stream::stream! {
                     #(#visit_fields_named_impl)*
+                    #[allow(unreachable_code)]
+                    if false {
+                        yield unreachable!() as <__visit_rs__V as visit_rs::Visitor>::Result
+                    }
                 }
             }
         }
@@ -402,6 +410,10 @@ fn derive_visit_fields_static_async(
             {
                 visit_rs::lib::async_stream::stream! {
                     #(#visit_fields_impl)*
+                    #[allow(unreachable_code)]
+                    if false {
+                        yield unreachable!() as <__visit_rs__V as visit_rs::Visitor>::Result
+                    }
                 }
             }
         }
@@ -501,6 +513,10 @@ fn derive_visit_fields_static_named_async(
             {
                 visit_rs::lib::async_stream::stream! {
                     #(#visit_fields_named_impl)*
+                    #[allow(unreachable_code)]
+                    if false {
+                        yield unreachable!() as <__visit_rs__V as visit_rs::Visitor>::Result
+                    }
                 }
             }
         }

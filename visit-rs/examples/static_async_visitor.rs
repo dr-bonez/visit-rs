@@ -53,6 +53,10 @@ struct Config {
     enabled: bool,
 }
 
+#[derive(VisitFields)]
+#[allow(unused)]
+struct Empty {}
+
 #[tokio::main]
 async fn main() {
     let mut visitor = AsyncTypeVisitor;

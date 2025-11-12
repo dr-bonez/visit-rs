@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 name = "visit-rs"
 repository = "https://github.com/dr-bonez/visit-rs"
-version = "0.1.5"
+version = "0.1.6"
 
 [features]
 default = ["serde"]
@@ -13,7 +13,7 @@ default = ["serde"]
 [dependencies]
 async-stream = "0.3"
 futures = "0.3"
-visit-rs-derive = { version = "=0.1.3", path = "../visit-rs-derive" }
+visit-rs-derive = { version = "=0.1.4", path = "../visit-rs-derive" }
 
 serde = { version = "1", optional = true }
 
