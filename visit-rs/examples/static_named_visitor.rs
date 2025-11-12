@@ -6,7 +6,7 @@ impl Visitor for FieldInfoVisitor {
     type Result = String;
 }
 
-impl<T> Visit<FieldInfoVisitor> for NamedStatic<T> {
+impl<'a, T> Visit<FieldInfoVisitor> for Named<'a, Static<T>> {
     fn visit(&self, _visitor: &mut FieldInfoVisitor) -> String {
         format!("Type: {}", std::any::type_name::<T>())
     }

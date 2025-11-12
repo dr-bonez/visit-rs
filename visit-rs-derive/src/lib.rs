@@ -79,7 +79,7 @@ fn make_impl(
         if let Some(named) = named {
             if is_static {
                 predicates.push(
-                    syn::parse_quote! { visit_rs::NamedStatic<#ty>: #trait_path<__visit_rs__V> },
+                    syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, visit_rs::Static<#ty>>: #trait_path<__visit_rs__V> },
                 );
             } else {
                 predicates.push(syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, #ty>: #trait_path<__visit_rs__V> });
@@ -467,7 +467,7 @@ fn derive_visit_fields_static_named(
         &data.fields,
         &syn::parse_quote! { visit_rs::VisitFieldsStaticNamed },
         &syn::parse_quote! { visit_rs::Visit },
-        Some(&syn::parse_quote! { visit_rs::NamedStatic }),
+        Some(&syn::parse_quote! { visit_rs::Named }),
         false,
         true,
     );
@@ -487,7 +487,18 @@ fn derive_visit_fields_static_named(
         quote! {
             #num => {
                 pos += 1;
-                Some(visit_rs::Visit::visit(&visit_rs::NamedStatic::<#ty>::new(#name), visitor))
+                {
+                    static __VISIT_RS_STATIC: visit_rs::Static<()> = visit_rs::Static::new();
+                    let named = visit_rs::Named {
+                        name: #name,
+                        value: unsafe {
+                            // SAFETY: Static<T> is zero-sized and contains only PhantomData,
+                            // so transmuting from &Static<()> to &Static<#ty> is safe
+                            &*(&__VISIT_RS_STATIC as *const visit_rs::Static<()> as *const visit_rs::Static<#ty>)
+                        },
+                    };
+                    Some(visit_rs::Visit::visit(&named, visitor))
+                }
             }
         }
     });
@@ -518,7 +529,7 @@ fn derive_visit_fields_static_named_async(
         &data.fields,
         &syn::parse_quote! { visit_rs::VisitFieldsStaticNamedAsync },
         &syn::parse_quote! { visit_rs::VisitAsync },
-        Some(&syn::parse_quote! { visit_rs::NamedStatic }),
+        Some(&syn::parse_quote! { visit_rs::Named }),
         true,
         true,
     );
@@ -536,7 +547,18 @@ fn derive_visit_fields_static_named_async(
 
     let visit_fields_named_impl = field_name_type_iter.map(|(name, ty)| {
         quote! {
-            yield visit_rs::VisitAsync::visit_async(&visit_rs::NamedStatic::<#ty>::new(#name), visitor).await;
+            {
+                static __VISIT_RS_STATIC: visit_rs::Static<()> = visit_rs::Static::new();
+                let named = visit_rs::Named {
+                    name: #name,
+                    value: unsafe {
+                        // SAFETY: Static<T> is zero-sized and contains only PhantomData,
+                        // so transmuting from &Static<()> to &Static<#ty> is safe
+                        &*(&__VISIT_RS_STATIC as *const visit_rs::Static<()> as *const visit_rs::Static<#ty>)
+                    },
+                };
+                yield visit_rs::VisitAsync::visit_async(&named, visitor).await;
+            }
         }
     });
 

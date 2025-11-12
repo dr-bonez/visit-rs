@@ -33,19 +33,19 @@ impl Visit<TypeVisitor> for Static<[i32]> {
 }
 
 // Named versions
-impl Visit<TypeVisitor> for NamedStatic<String> {
+impl<'a> Visit<TypeVisitor> for Named<'a, Static<String>> {
     fn visit(&self, _visitor: &mut TypeVisitor) -> String {
         format!("Named({}, String)", self.name.unwrap_or("UNNAMED"))
     }
 }
 
-impl Visit<TypeVisitor> for NamedStatic<str> {
+impl<'a> Visit<TypeVisitor> for Named<'a, Static<str>> {
     fn visit(&self, _visitor: &mut TypeVisitor) -> String {
         format!("Named({}, str unsized)", self.name.unwrap_or("UNNAMED"))
     }
 }
 
-impl Visit<TypeVisitor> for NamedStatic<[i32]> {
+impl<'a> Visit<TypeVisitor> for Named<'a, Static<[i32]>> {
     fn visit(&self, _visitor: &mut TypeVisitor) -> String {
         format!("Named({}, [i32] unsized)", self.name.unwrap_or("UNNAMED"))
     }
@@ -62,12 +62,21 @@ fn main() {
     println!("  {}", Static::<str>::new().visit(&mut visitor));
     println!("  {}", Static::<[i32]>::new().visit(&mut visitor));
 
-    println!("\nTesting NamedStatic<T> with sized types:");
-    println!("  {}", NamedStatic::<String>::new(Some("my_string")).visit(&mut visitor));
+    println!("\nTesting Named<Static<T>> with sized types:");
+    {
+        const STATIC_STRING: Static<String> = Static::new();
+        println!("  {}", Named { name: Some("my_string"), value: &STATIC_STRING }.visit(&mut visitor));
+    }
 
-    println!("\nTesting NamedStatic<T> with unsized types:");
-    println!("  {}", NamedStatic::<str>::new(Some("my_str")).visit(&mut visitor));
-    println!("  {}", NamedStatic::<[i32]>::new(Some("my_slice")).visit(&mut visitor));
+    println!("\nTesting Named<Static<T>> with unsized types:");
+    {
+        const STATIC_STR: Static<str> = Static::new();
+        println!("  {}", Named { name: Some("my_str"), value: &STATIC_STR }.visit(&mut visitor));
+    }
+    {
+        const STATIC_SLICE: Static<[i32]> = Static::new();
+        println!("  {}", Named { name: Some("my_slice"), value: &STATIC_SLICE }.visit(&mut visitor));
+    }
 
-    println!("\nStatic and NamedStatic support both sized and unsized types!");
+    println!("\nStatic and Named<Static<T>> support both sized and unsized types!");
 }

@@ -28,19 +28,19 @@ impl VisitAsync<AsyncTypeVisitor> for Static<bool> {
     }
 }
 
-impl VisitAsync<AsyncTypeVisitor> for NamedStatic<String> {
+impl<'a> VisitAsync<AsyncTypeVisitor> for Named<'a, Static<String>> {
     async fn visit_async(&self, _visitor: &mut AsyncTypeVisitor) -> String {
         format!("Named({}, String)", self.name.unwrap_or("UNNAMED"))
     }
 }
 
-impl VisitAsync<AsyncTypeVisitor> for NamedStatic<i32> {
+impl<'a> VisitAsync<AsyncTypeVisitor> for Named<'a, Static<i32>> {
     async fn visit_async(&self, _visitor: &mut AsyncTypeVisitor) -> String {
         format!("Named({}, i32)", self.name.unwrap_or("UNNAMED"))
     }
 }
 
-impl VisitAsync<AsyncTypeVisitor> for NamedStatic<bool> {
+impl<'a> VisitAsync<AsyncTypeVisitor> for Named<'a, Static<bool>> {
     async fn visit_async(&self, _visitor: &mut AsyncTypeVisitor) -> String {
         format!("Named({}, bool)", self.name.unwrap_or("UNNAMED"))
     }

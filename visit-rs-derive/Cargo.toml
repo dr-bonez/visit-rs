@@ -3,7 +3,7 @@ description = "Procedural macros for visit-rs"
 edition = "2024"
 license = "MIT"
 name = "visit-rs-derive"
-version = "0.1.5"
+version = "0.1.6"
 
 [lib]
 proc-macro = true

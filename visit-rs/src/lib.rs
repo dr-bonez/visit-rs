@@ -60,7 +60,7 @@ pub trait VisitFieldsStaticAsync<V: Visitor>: StructInfo {
 
 pub trait VisitFieldsNamed<V: Visitor>: StructInfo {
     fn visit_fields_named<'a>(&'a self, visitor: &'a mut V)
-    -> impl Iterator<Item = V::Result> + 'a;
+        -> impl Iterator<Item = V::Result> + 'a;
 }
 
 pub trait VisitFieldsStaticNamed<V: Visitor>: StructInfo {
@@ -86,6 +86,7 @@ pub trait VisitFieldsStaticNamedAsync<V: Visitor>: StructInfo {
         V::Result: Send;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Named<'a, T: ?Sized> {
     pub name: Option<&'static str>,
     pub value: &'a T,
@@ -94,30 +95,34 @@ pub struct Named<'a, T: ?Sized> {
 pub struct Static<T: ?Sized> {
     _phantom: PhantomData<T>,
 }
-
-unsafe impl<T: ?Sized> Send for Static<T> {}
-unsafe impl<T: ?Sized> Sync for Static<T> {}
-
-impl<T: ?Sized> Static<T> {
-    pub fn new() -> Self {
-        Static {
-            _phantom: PhantomData,
-        }
+impl<T: ?Sized> std::fmt::Debug for Static<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(std::any::type_name::<Self>()).finish()
     }
 }
-
-pub struct NamedStatic<T: ?Sized> {
-    pub name: Option<&'static str>,
-    _phantom: PhantomData<T>,
+unsafe impl<T: ?Sized> Send for Static<T> {}
+unsafe impl<T: ?Sized> Sync for Static<T> {}
+impl<T: ?Sized> Default for Static<T> {
+    fn default() -> Self {
+        Static::new()
+    }
 }
+impl<T: ?Sized> Clone for Static<T> {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+impl<T: ?Sized> Copy for Static<T> {}
+impl<T: ?Sized + 'static, U: ?Sized + 'static> PartialEq<Static<U>> for Static<T> {
+    fn eq(&self, _: &Static<U>) -> bool {
+        std::any::TypeId::of::<T>() == std::any::TypeId::of::<U>()
+    }
+}
+impl<T: ?Sized + 'static> Eq for Static<T> {}
 
-unsafe impl<T: ?Sized> Send for NamedStatic<T> {}
-unsafe impl<T: ?Sized> Sync for NamedStatic<T> {}
-
-impl<T: ?Sized> NamedStatic<T> {
-    pub fn new(name: Option<&'static str>) -> Self {
-        NamedStatic {
-            name,
+impl<T: ?Sized> Static<T> {
+    pub const fn new() -> Self {
+        Static {
             _phantom: PhantomData,
         }
     }

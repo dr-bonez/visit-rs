@@ -1,6 +1,6 @@
 use visit_rs::*;
 
-// Test that Static, NamedStatic, and Named work with unsized types
+// Test that Static, Named<Static<T>>, and Named work with unsized types
 
 struct UnsizedVisitor;
 
@@ -36,15 +36,15 @@ impl Visit<UnsizedVisitor> for Static<[i32]> {
     }
 }
 
-// Implement Visit for NamedStatic<str>
-impl Visit<UnsizedVisitor> for NamedStatic<str> {
+// Implement Visit for Named<Static<str>>
+impl<'a> Visit<UnsizedVisitor> for Named<'a, Static<str>> {
     fn visit(&self, _visitor: &mut UnsizedVisitor) -> String {
         format!("Named({}, str)", self.name.unwrap_or("UNNAMED"))
     }
 }
 
-// Implement Visit for NamedStatic<[i32]>
-impl Visit<UnsizedVisitor> for NamedStatic<[i32]> {
+// Implement Visit for Named<Static<[i32]>>
+impl<'a> Visit<UnsizedVisitor> for Named<'a, Static<[i32]>> {
     fn visit(&self, _visitor: &mut UnsizedVisitor) -> String {
         format!("Named({}, [i32])", self.name.unwrap_or("UNNAMED"))
     }
@@ -69,7 +69,11 @@ fn test_static_with_unsized_slice() {
 #[test]
 fn test_named_static_with_unsized_str() {
     let mut visitor = UnsizedVisitor;
-    let named_static = NamedStatic::<str>::new(Some("my_string"));
+    const STATIC_STR: Static<str> = Static::new();
+    let named_static = Named {
+        name: Some("my_string"),
+        value: &STATIC_STR,
+    };
     let result = named_static.visit(&mut visitor);
     assert_eq!(result, "Named(my_string, str)");
 }
@@ -77,7 +81,11 @@ fn test_named_static_with_unsized_str() {
 #[test]
 fn test_named_static_with_unsized_slice() {
     let mut visitor = UnsizedVisitor;
-    let named_static = NamedStatic::<[i32]>::new(Some("my_slice"));
+    const STATIC_SLICE: Static<[i32]> = Static::new();
+    let named_static = Named {
+        name: Some("my_slice"),
+        value: &STATIC_SLICE,
+    };
     let result = named_static.visit(&mut visitor);
     assert_eq!(result, "Named(my_slice, [i32])");
 }
@@ -118,11 +126,11 @@ fn test_static_send_sync_with_unsized() {
     assert_send::<Static<[i32]>>();
     assert_sync::<Static<[i32]>>();
 
-    assert_send::<NamedStatic<str>>();
-    assert_sync::<NamedStatic<str>>();
+    assert_send::<Named<'static, Static<str>>>();
+    assert_sync::<Named<'static, Static<str>>>();
 
-    assert_send::<NamedStatic<[i32]>>();
-    assert_sync::<NamedStatic<[i32]>>();
+    assert_send::<Named<'static, Static<[i32]>>>();
+    assert_sync::<Named<'static, Static<[i32]>>>();
 
     // Named doesn't need Send/Sync because it contains a reference
 }
