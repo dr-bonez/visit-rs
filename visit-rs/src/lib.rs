@@ -27,15 +27,20 @@ pub trait VisitAsync<V: Visitor> {
         V::Result: Send;
 }
 
-pub trait VisitFields<V: Visitor> {
+pub trait StructInfo {
+    const IS_NAMED: bool;
+    const FIELD_COUNT: usize;
+}
+
+pub trait VisitFields<V: Visitor>: StructInfo {
     fn visit_fields<'a>(&'a self, visitor: &'a mut V) -> impl Iterator<Item = V::Result> + 'a;
 }
 
-pub trait VisitFieldsStatic<V: Visitor> {
+pub trait VisitFieldsStatic<V: Visitor>: StructInfo {
     fn visit_fields_static<'a>(visitor: &'a mut V) -> impl Iterator<Item = V::Result> + 'a;
 }
 
-pub trait VisitFieldsAsync<V: Visitor> {
+pub trait VisitFieldsAsync<V: Visitor>: StructInfo {
     fn visit_fields_async<'a>(
         &'a self,
         visitor: &'a mut V,
@@ -45,23 +50,23 @@ pub trait VisitFieldsAsync<V: Visitor> {
         V::Result: Send;
 }
 
-pub trait VisitFieldsStaticAsync<V: Visitor> {
+pub trait VisitFieldsStaticAsync<V: Visitor>: StructInfo {
     fn visit_fields_static_async<'a>(visitor: &'a mut V) -> impl Stream<Item = V::Result> + 'a
     where
         V: Send,
         V::Result: Send;
 }
 
-pub trait VisitFieldsNamed<V: Visitor> {
+pub trait VisitFieldsNamed<V: Visitor>: StructInfo {
     fn visit_fields_named<'a>(&'a self, visitor: &'a mut V)
     -> impl Iterator<Item = V::Result> + 'a;
 }
 
-pub trait VisitFieldsStaticNamed<V: Visitor> {
+pub trait VisitFieldsStaticNamed<V: Visitor>: StructInfo {
     fn visit_fields_static_named<'a>(visitor: &'a mut V) -> impl Iterator<Item = V::Result> + 'a;
 }
 
-pub trait VisitFieldsNamedAsync<V: Visitor> {
+pub trait VisitFieldsNamedAsync<V: Visitor>: StructInfo {
     fn visit_fields_named_async<'a>(
         &'a self,
         visitor: &'a mut V,
@@ -71,7 +76,7 @@ pub trait VisitFieldsNamedAsync<V: Visitor> {
         V::Result: Send;
 }
 
-pub trait VisitFieldsStaticNamedAsync<V: Visitor> {
+pub trait VisitFieldsStaticNamedAsync<V: Visitor>: StructInfo {
     fn visit_fields_static_named_async<'a>(
         visitor: &'a mut V,
     ) -> impl Stream<Item = V::Result> + Send + 'a

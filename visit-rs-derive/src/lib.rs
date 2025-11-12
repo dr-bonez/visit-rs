@@ -44,13 +44,16 @@ fn make_impl(
         }
         if let Some(named) = named {
             if is_static {
-                predicates.push(syn::parse_quote! { visit_rs::NamedStatic<#ty>: #trait_path<__visit_rs__V> });
+                predicates.push(
+                    syn::parse_quote! { visit_rs::NamedStatic<#ty>: #trait_path<__visit_rs__V> },
+                );
             } else {
                 predicates.push(syn::parse_quote! { for<'__visit_rs__named> #named <'__visit_rs__named, #ty>: #trait_path<__visit_rs__V> });
             }
         } else {
             if is_static {
-                predicates.push(syn::parse_quote! { visit_rs::Static<#ty>: #trait_path<__visit_rs__V> });
+                predicates
+                    .push(syn::parse_quote! { visit_rs::Static<#ty>: #trait_path<__visit_rs__V> });
             } else {
                 predicates.push(syn::parse_quote! { #ty: #trait_path<__visit_rs__V> });
             }
@@ -120,6 +123,7 @@ pub fn derive_visit_fields_(input: proc_macro::TokenStream) -> proc_macro::Token
 
     let all_impls = match (|| {
         Ok::<_, syn::Error>([
+            derive_struct_info(&ast, data)?,
             derive_visit_fields(&ast, data)?,
             derive_visit_fields_async(&ast, data)?,
             derive_visit_fields_named(&ast, data)?,
@@ -140,6 +144,21 @@ pub fn derive_visit_fields_(input: proc_macro::TokenStream) -> proc_macro::Token
         #(#all_impls)*
     })
     // )
+}
+
+fn derive_struct_info(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStream, syn::Error> {
+    let ident = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+
+    let is_named = matches!(data.fields, Fields::Named(_));
+    let field_count = field_iter(&data.fields).count();
+
+    Ok(quote! {
+        impl #impl_generics visit_rs::StructInfo for #ident #ty_generics #where_clause {
+            const IS_NAMED: bool = #is_named;
+            const FIELD_COUNT: usize = #field_count;
+        }
+    })
 }
 
 fn derive_visit_fields(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStream, syn::Error> {
