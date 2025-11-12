@@ -2,7 +2,41 @@ use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataStruct, DeriveInput, Fields, Ident, Path, WhereClause, WherePredicate, parse_quote};
+use syn::{DataStruct, DeriveInput, Fields, Ident, Lit, Meta, Path, WhereClause, WherePredicate, parse_quote};
+
+fn get_rename_attribute(ast: &DeriveInput) -> Option<String> {
+    for attr in &ast.attrs {
+        // Check for #[visit(rename = "...")]
+        if attr.path().is_ident("visit") {
+            if let Ok(meta_list) = attr.meta.require_list() {
+                if let Ok(Meta::NameValue(nv)) = syn::parse2::<Meta>(meta_list.tokens.clone()) {
+                    if nv.path.is_ident("rename") {
+                        if let syn::Expr::Lit(lit) = &nv.value {
+                            if let Lit::Str(s) = &lit.lit {
+                                return Some(s.value());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Check for #[serde(rename = "...")]
+        if attr.path().is_ident("serde") {
+            if let Ok(meta_list) = attr.meta.require_list() {
+                if let Ok(Meta::NameValue(nv)) = syn::parse2::<Meta>(meta_list.tokens.clone()) {
+                    if nv.path.is_ident("rename") {
+                        if let syn::Expr::Lit(lit) = &nv.value {
+                            if let Lit::Str(s) = &lit.lit {
+                                return Some(s.value());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 fn make_impl(
     input: &DeriveInput,
@@ -150,12 +184,16 @@ fn derive_struct_info(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStrea
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
-    let is_named = matches!(data.fields, Fields::Named(_));
+    let named_fields = matches!(data.fields, Fields::Named(_));
     let field_count = field_iter(&data.fields).count();
+
+    let name = get_rename_attribute(ast)
+        .unwrap_or_else(|| ident.to_string());
 
     Ok(quote! {
         impl #impl_generics visit_rs::StructInfo for #ident #ty_generics #where_clause {
-            const IS_NAMED: bool = #is_named;
+            const NAME: &'static str = #name;
+            const NAMED_FIELDS: bool = #named_fields;
             const FIELD_COUNT: usize = #field_count;
         }
     })

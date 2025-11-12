@@ -12,17 +12,21 @@ struct TupleStruct(String, i32, bool);
 
 fn main() {
     println!("NamedStruct:");
-    println!("  IS_NAMED: {}", NamedStruct::IS_NAMED);
+    println!("  NAME: {}", NamedStruct::NAME);
+    println!("  NAMED_FIELDS: {}", NamedStruct::NAMED_FIELDS);
     println!("  FIELD_COUNT: {}", NamedStruct::FIELD_COUNT);
 
     println!("\nTupleStruct:");
-    println!("  IS_NAMED: {}", TupleStruct::IS_NAMED);
+    println!("  NAME: {}", TupleStruct::NAME);
+    println!("  NAMED_FIELDS: {}", TupleStruct::NAMED_FIELDS);
     println!("  FIELD_COUNT: {}", TupleStruct::FIELD_COUNT);
 
-    assert!(NamedStruct::IS_NAMED);
+    assert_eq!(NamedStruct::NAME, "NamedStruct");
+    assert!(NamedStruct::NAMED_FIELDS);
     assert_eq!(NamedStruct::FIELD_COUNT, 3);
 
-    assert!(!TupleStruct::IS_NAMED);
+    assert_eq!(TupleStruct::NAME, "TupleStruct");
+    assert!(!TupleStruct::NAMED_FIELDS);
     assert_eq!(TupleStruct::FIELD_COUNT, 3);
 
     println!("\nStructInfo trait works correctly!");

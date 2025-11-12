@@ -28,7 +28,8 @@ pub trait VisitAsync<V: Visitor> {
 }
 
 pub trait StructInfo {
-    const IS_NAMED: bool;
+    const NAME: &'static str;
+    const NAMED_FIELDS: bool;
     const FIELD_COUNT: usize;
 }
 

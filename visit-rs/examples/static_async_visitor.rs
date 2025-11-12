@@ -54,8 +54,15 @@ struct Config {
 }
 
 #[derive(VisitFields)]
+#[visit(rename = "EmptyStructure")]
 #[allow(unused)]
 struct Empty {}
+
+#[derive(VisitFields)]
+#[visit(rename = "ServerSettings")]
+struct Settings {
+    timeout: i32,
+}
 
 #[tokio::main]
 async fn main() {
@@ -86,5 +93,27 @@ async fn main() {
         ]
     );
 
-    println!("\nAll async static visitors work!");
+    println!("\nTesting StructInfo:");
+    println!("  Config::NAME = {}", Config::NAME);
+    println!("  Config::NAMED_FIELDS = {}", Config::NAMED_FIELDS);
+    println!("  Config::FIELD_COUNT = {}", Config::FIELD_COUNT);
+    assert_eq!(Config::NAME, "Config");
+    assert_eq!(Config::NAMED_FIELDS, true);
+    assert_eq!(Config::FIELD_COUNT, 3);
+
+    println!("\n  Empty::NAME = {}", Empty::NAME);
+    println!("  Empty::NAMED_FIELDS = {}", Empty::NAMED_FIELDS);
+    println!("  Empty::FIELD_COUNT = {}", Empty::FIELD_COUNT);
+    assert_eq!(Empty::NAME, "EmptyStructure");
+    assert_eq!(Empty::NAMED_FIELDS, true);
+    assert_eq!(Empty::FIELD_COUNT, 0);
+
+    println!("\n  Settings::NAME = {}", Settings::NAME);
+    println!("  Settings::NAMED_FIELDS = {}", Settings::NAMED_FIELDS);
+    println!("  Settings::FIELD_COUNT = {}", Settings::FIELD_COUNT);
+    assert_eq!(Settings::NAME, "ServerSettings");
+    assert_eq!(Settings::NAMED_FIELDS, true);
+    assert_eq!(Settings::FIELD_COUNT, 1);
+
+    println!("\nAll async static visitors and StructInfo work!");
 }
