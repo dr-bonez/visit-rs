@@ -86,19 +86,19 @@ pub trait VisitFieldsStaticNamedAsync<V: Visitor>: StructInfo {
         V::Result: Send;
 }
 
-pub struct Named<'a, T> {
+pub struct Named<'a, T: ?Sized> {
     pub name: Option<&'static str>,
     pub value: &'a T,
 }
 
-pub struct Static<T> {
+pub struct Static<T: ?Sized> {
     _phantom: PhantomData<T>,
 }
 
-unsafe impl<T> Send for Static<T> {}
-unsafe impl<T> Sync for Static<T> {}
+unsafe impl<T: ?Sized> Send for Static<T> {}
+unsafe impl<T: ?Sized> Sync for Static<T> {}
 
-impl<T> Static<T> {
+impl<T: ?Sized> Static<T> {
     pub fn new() -> Self {
         Static {
             _phantom: PhantomData,
@@ -106,15 +106,15 @@ impl<T> Static<T> {
     }
 }
 
-pub struct NamedStatic<T> {
+pub struct NamedStatic<T: ?Sized> {
     pub name: Option<&'static str>,
     _phantom: PhantomData<T>,
 }
 
-unsafe impl<T> Send for NamedStatic<T> {}
-unsafe impl<T> Sync for NamedStatic<T> {}
+unsafe impl<T: ?Sized> Send for NamedStatic<T> {}
+unsafe impl<T: ?Sized> Sync for NamedStatic<T> {}
 
-impl<T> NamedStatic<T> {
+impl<T: ?Sized> NamedStatic<T> {
     pub fn new(name: Option<&'static str>) -> Self {
         NamedStatic {
             name,
