@@ -11,14 +11,14 @@ impl Visitor for UnsizedVisitor {
 // Implement Visit for Named<str>
 impl<'a> Visit<UnsizedVisitor> for Named<'a, str> {
     fn visit(&self, _visitor: &mut UnsizedVisitor) -> String {
-        format!("Named({}, value='{}')", self.name.unwrap_or("UNNAMED"), self.value)
+        format!("Named({}, value='{}')", self.name.unwrap_or("UNDATA.nameD"), self.value)
     }
 }
 
 // Implement Visit for Named<[i32]>
 impl<'a> Visit<UnsizedVisitor> for Named<'a, [i32]> {
     fn visit(&self, _visitor: &mut UnsizedVisitor) -> String {
-        format!("Named({}, slice len={})", self.name.unwrap_or("UNNAMED"), self.value.len())
+        format!("Named({}, slice len={})", self.name.unwrap_or("UNDATA.nameD"), self.value.len())
     }
 }
 
@@ -39,14 +39,14 @@ impl Visit<UnsizedVisitor> for Static<[i32]> {
 // Implement Visit for Named<Static<str>>
 impl<'a> Visit<UnsizedVisitor> for Named<'a, Static<str>> {
     fn visit(&self, _visitor: &mut UnsizedVisitor) -> String {
-        format!("Named({}, str)", self.name.unwrap_or("UNNAMED"))
+        format!("Named({}, str)", self.name.unwrap_or("UNDATA.nameD"))
     }
 }
 
 // Implement Visit for Named<Static<[i32]>>
 impl<'a> Visit<UnsizedVisitor> for Named<'a, Static<[i32]>> {
     fn visit(&self, _visitor: &mut UnsizedVisitor) -> String {
-        format!("Named({}, [i32])", self.name.unwrap_or("UNNAMED"))
+        format!("Named({}, [i32])", self.name.unwrap_or("UNDATA.nameD"))
     }
 }
 

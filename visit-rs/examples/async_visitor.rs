@@ -34,7 +34,7 @@ where
 {
     async fn visit_async(&self, visitor: &mut AsyncTypeVisitor) -> String {
         let value_str = self.value.visit_async(visitor).await;
-        format!("Named({}, {})", self.name.unwrap_or("UNNAMED"), value_str)
+        format!("Named({}, {})", self.name.unwrap_or("UNDATA.nameD"), value_str)
     }
 }
 

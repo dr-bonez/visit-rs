@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataStruct, DeriveInput, Fields, Ident, Lit, Meta, Path, WhereClause, WherePredicate, parse_quote};
+use syn::{
+    parse_quote, DataStruct, DeriveInput, Fields, Ident, Lit, Meta, Path, WhereClause,
+    WherePredicate,
+};
 
 fn get_rename_attribute(ast: &DeriveInput) -> Option<String> {
     for attr in &ast.attrs {
@@ -187,14 +190,15 @@ fn derive_struct_info(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStrea
     let named_fields = matches!(data.fields, Fields::Named(_));
     let field_count = field_iter(&data.fields).count();
 
-    let name = get_rename_attribute(ast)
-        .unwrap_or_else(|| ident.to_string());
+    let name = get_rename_attribute(ast).unwrap_or_else(|| ident.to_string());
 
     Ok(quote! {
         impl #impl_generics visit_rs::StructInfo for #ident #ty_generics #where_clause {
-            const NAME: &'static str = #name;
-            const NAMED_FIELDS: bool = #named_fields;
-            const FIELD_COUNT: usize = #field_count;
+            const DATA: visit_rs::StructInfoData = visit_rs::StructInfoData {
+                name: #name,
+                named_fields: #named_fields,
+                field_count: #field_count,
+            };
         }
     })
 }

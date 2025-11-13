@@ -28,13 +28,25 @@ pub trait VisitAsync<V: Visitor> {
 }
 
 pub trait StructInfo {
-    const NAME: &'static str;
-    const NAMED_FIELDS: bool;
-    const FIELD_COUNT: usize;
+    const DATA: StructInfoData;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StructInfoData {
+    pub name: &'static str,
+    pub named_fields: bool,
+    pub field_count: usize,
 }
 
 pub trait VisitFields<V: Visitor>: StructInfo {
     fn visit_fields<'a>(&'a self, visitor: &'a mut V) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitFieldsCovered<V: Visitor>: StructInfo {
+    fn visit_fields_covered<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Iterator<Item = V::Result> + 'a;
 }
 
 pub trait VisitFieldsStatic<V: Visitor>: StructInfo {
@@ -42,6 +54,16 @@ pub trait VisitFieldsStatic<V: Visitor>: StructInfo {
 }
 
 pub trait VisitFieldsAsync<V: Visitor>: StructInfo {
+    fn visit_fields_async<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Stream<Item = V::Result> + Send + 'a
+    where
+        V: Send,
+        V::Result: Send;
+}
+
+pub trait VisitFieldsConveredAsync<V: Visitor>: StructInfo {
     fn visit_fields_async<'a>(
         &'a self,
         visitor: &'a mut V,
@@ -126,4 +148,118 @@ impl<T: ?Sized> Static<T> {
             _phantom: PhantomData,
         }
     }
+    pub const fn new_ref() -> &'static Self {
+        const STATIC: Static<()> = Static::new();
+        // SAFETY: Safe to transmute because it is always just a phantom
+        unsafe { std::mem::transmute(&STATIC) }
+    }
+}
+
+pub trait EnumInfo {
+    const DATA: EnumInfoData;
+    fn variants() -> impl IntoIterator<Item = StructInfoData> + Send + Sync + 'static;
+    fn variant_info(&self) -> StructInfoData;
+    fn variant_info_by_name(name: &str) -> Option<StructInfoData>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EnumInfoData {
+    pub name: &'static str,
+    pub variant_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Variant<'a, T: ?Sized> {
+    pub info: StructInfoData,
+    pub value: &'a T,
+}
+
+pub trait VisitVariant<V: Visitor>: EnumInfo {
+    fn visit_variant(&self, visitor: &mut V) -> V::Result;
+}
+
+pub trait VisitVariantsStatic<V: Visitor>: EnumInfo {
+    fn visit_variants_static<'a>(visitor: &'a mut V) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitVariantFields<V: Visitor>: EnumInfo {
+    fn visit_variant_fields<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitVariantFieldsCovered<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_covered<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitVariantFieldsStatic<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_static<'a>(
+        info: &'a StructInfoData,
+        visitor: &'a mut V,
+    ) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitVariantFieldsAsync<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_async<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Stream<Item = V::Result> + Send + 'a
+    where
+        V: Send,
+        V::Result: Send;
+}
+
+pub trait VisitVariantFieldsConveredAsync<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_async<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Stream<Item = V::Result> + Send + 'a
+    where
+        V: Send,
+        V::Result: Send;
+}
+
+pub trait VisitVariantFieldsStaticAsync<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_static_async<'a>(
+        visitor: &'a mut V,
+    ) -> impl Stream<Item = V::Result> + 'a
+    where
+        V: Send,
+        V::Result: Send;
+}
+
+pub trait VisitVariantFieldsNamed<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_named<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitVariantFieldsStaticNamed<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_static_named<'a>(
+        visitor: &'a mut V,
+    ) -> impl Iterator<Item = V::Result> + 'a;
+}
+
+pub trait VisitVariantFieldsNamedAsync<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_named_async<'a>(
+        &'a self,
+        visitor: &'a mut V,
+    ) -> impl Stream<Item = V::Result> + Send + 'a
+    where
+        V: Send,
+        V::Result: Send;
+}
+
+pub trait VisitVariantFieldsStaticNamedAsync<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_static_named_async<'a>(
+        visitor: &'a mut V,
+    ) -> impl Stream<Item = V::Result> + Send + 'a
+    where
+        V: Send,
+        V::Result: Send;
 }

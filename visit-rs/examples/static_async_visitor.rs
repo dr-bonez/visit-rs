@@ -30,19 +30,19 @@ impl VisitAsync<AsyncTypeVisitor> for Static<bool> {
 
 impl<'a> VisitAsync<AsyncTypeVisitor> for Named<'a, Static<String>> {
     async fn visit_async(&self, _visitor: &mut AsyncTypeVisitor) -> String {
-        format!("Named({}, String)", self.name.unwrap_or("UNNAMED"))
+        format!("Named({}, String)", self.name.unwrap_or("UNDATA.nameD"))
     }
 }
 
 impl<'a> VisitAsync<AsyncTypeVisitor> for Named<'a, Static<i32>> {
     async fn visit_async(&self, _visitor: &mut AsyncTypeVisitor) -> String {
-        format!("Named({}, i32)", self.name.unwrap_or("UNNAMED"))
+        format!("Named({}, i32)", self.name.unwrap_or("UNDATA.nameD"))
     }
 }
 
 impl<'a> VisitAsync<AsyncTypeVisitor> for Named<'a, Static<bool>> {
     async fn visit_async(&self, _visitor: &mut AsyncTypeVisitor) -> String {
-        format!("Named({}, bool)", self.name.unwrap_or("UNNAMED"))
+        format!("Named({}, bool)", self.name.unwrap_or("UNDATA.nameD"))
     }
 }
 
@@ -94,26 +94,35 @@ async fn main() {
     );
 
     println!("\nTesting StructInfo:");
-    println!("  Config::NAME = {}", Config::NAME);
-    println!("  Config::NAMED_FIELDS = {}", Config::NAMED_FIELDS);
-    println!("  Config::FIELD_COUNT = {}", Config::FIELD_COUNT);
-    assert_eq!(Config::NAME, "Config");
-    assert_eq!(Config::NAMED_FIELDS, true);
-    assert_eq!(Config::FIELD_COUNT, 3);
+    println!("  Config::DATA.name = {}", Config::DATA.name);
+    println!(
+        "  Config::DATA.named_fields = {}",
+        Config::DATA.named_fields
+    );
+    println!("  Config::DATA.field_count = {}", Config::DATA.field_count);
+    assert_eq!(Config::DATA.name, "Config");
+    assert_eq!(Config::DATA.named_fields, true);
+    assert_eq!(Config::DATA.field_count, 3);
 
-    println!("\n  Empty::NAME = {}", Empty::NAME);
-    println!("  Empty::NAMED_FIELDS = {}", Empty::NAMED_FIELDS);
-    println!("  Empty::FIELD_COUNT = {}", Empty::FIELD_COUNT);
-    assert_eq!(Empty::NAME, "EmptyStructure");
-    assert_eq!(Empty::NAMED_FIELDS, true);
-    assert_eq!(Empty::FIELD_COUNT, 0);
+    println!("\n  Empty::DATA.name = {}", Empty::DATA.name);
+    println!("  Empty::DATA.named_fields = {}", Empty::DATA.named_fields);
+    println!("  Empty::DATA.field_count = {}", Empty::DATA.field_count);
+    assert_eq!(Empty::DATA.name, "EmptyStructure");
+    assert_eq!(Empty::DATA.named_fields, true);
+    assert_eq!(Empty::DATA.field_count, 0);
 
-    println!("\n  Settings::NAME = {}", Settings::NAME);
-    println!("  Settings::NAMED_FIELDS = {}", Settings::NAMED_FIELDS);
-    println!("  Settings::FIELD_COUNT = {}", Settings::FIELD_COUNT);
-    assert_eq!(Settings::NAME, "ServerSettings");
-    assert_eq!(Settings::NAMED_FIELDS, true);
-    assert_eq!(Settings::FIELD_COUNT, 1);
+    println!("\n  Settings::DATA.name = {}", Settings::DATA.name);
+    println!(
+        "  Settings::DATA.named_fields = {}",
+        Settings::DATA.named_fields
+    );
+    println!(
+        "  Settings::DATA.field_count = {}",
+        Settings::DATA.field_count
+    );
+    assert_eq!(Settings::DATA.name, "ServerSettings");
+    assert_eq!(Settings::DATA.named_fields, true);
+    assert_eq!(Settings::DATA.field_count, 1);
 
     println!("\nAll async static visitors and StructInfo work!");
 }

@@ -10,7 +10,7 @@ impl<T> Visit<FieldInfoVisitor> for Named<'_, T> {
     fn visit(&self, _visitor: &mut FieldInfoVisitor) -> String {
         format!(
             "Field: {}, Type: {}",
-            self.name.unwrap_or("UNNAMED"),
+            self.name.unwrap_or("UNDATA.nameD"),
             std::any::type_name::<T>()
         )
     }

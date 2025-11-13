@@ -12,22 +12,22 @@ struct TupleStruct(String, i32, bool);
 
 fn main() {
     println!("NamedStruct:");
-    println!("  NAME: {}", NamedStruct::NAME);
-    println!("  NAMED_FIELDS: {}", NamedStruct::NAMED_FIELDS);
-    println!("  FIELD_COUNT: {}", NamedStruct::FIELD_COUNT);
+    println!("  DATA.name: {}", NamedStruct::DATA.name);
+    println!("  DATA.named_fields: {}", NamedStruct::DATA.named_fields);
+    println!("  DATA.field_count: {}", NamedStruct::DATA.field_count);
 
     println!("\nTupleStruct:");
-    println!("  NAME: {}", TupleStruct::NAME);
-    println!("  NAMED_FIELDS: {}", TupleStruct::NAMED_FIELDS);
-    println!("  FIELD_COUNT: {}", TupleStruct::FIELD_COUNT);
+    println!("  DATA.name: {}", TupleStruct::DATA.name);
+    println!("  DATA.named_fields: {}", TupleStruct::DATA.named_fields);
+    println!("  DATA.field_count: {}", TupleStruct::DATA.field_count);
 
-    assert_eq!(NamedStruct::NAME, "NamedStruct");
-    assert!(NamedStruct::NAMED_FIELDS);
-    assert_eq!(NamedStruct::FIELD_COUNT, 3);
+    assert_eq!(NamedStruct::DATA.name, "NamedStruct");
+    assert!(NamedStruct::DATA.named_fields);
+    assert_eq!(NamedStruct::DATA.field_count, 3);
 
-    assert_eq!(TupleStruct::NAME, "TupleStruct");
-    assert!(!TupleStruct::NAMED_FIELDS);
-    assert_eq!(TupleStruct::FIELD_COUNT, 3);
+    assert_eq!(TupleStruct::DATA.name, "TupleStruct");
+    assert!(!TupleStruct::DATA.named_fields);
+    assert_eq!(TupleStruct::DATA.field_count, 3);
 
     println!("\nStructInfo trait works correctly!");
 }
