@@ -63,8 +63,8 @@ pub trait VisitFieldsAsync<V: Visitor>: StructInfo {
         V::Result: Send;
 }
 
-pub trait VisitFieldsConveredAsync<V: Visitor>: StructInfo {
-    fn visit_fields_async<'a>(
+pub trait VisitFieldsCoveredAsync<V: Visitor>: StructInfo {
+    fn visit_fields_covered_async<'a>(
         &'a self,
         visitor: &'a mut V,
     ) -> impl Stream<Item = V::Result> + Send + 'a
@@ -113,6 +113,9 @@ pub struct Named<'a, T: ?Sized> {
     pub name: Option<&'static str>,
     pub value: &'a T,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Covered<'a, T: ?Sized>(pub &'a T);
 
 pub struct Static<T: ?Sized> {
     _phantom: PhantomData<T>,
@@ -213,8 +216,8 @@ pub trait VisitVariantFieldsAsync<V: Visitor>: EnumInfo {
         V::Result: Send;
 }
 
-pub trait VisitVariantFieldsConveredAsync<V: Visitor>: EnumInfo {
-    fn visit_variant_fields_async<'a>(
+pub trait VisitVariantFieldsCoveredAsync<V: Visitor>: EnumInfo {
+    fn visit_variant_fields_covered_async<'a>(
         &'a self,
         visitor: &'a mut V,
     ) -> impl Stream<Item = V::Result> + Send + 'a
@@ -225,6 +228,7 @@ pub trait VisitVariantFieldsConveredAsync<V: Visitor>: EnumInfo {
 
 pub trait VisitVariantFieldsStaticAsync<V: Visitor>: EnumInfo {
     fn visit_variant_fields_static_async<'a>(
+        info: &'a StructInfoData,
         visitor: &'a mut V,
     ) -> impl Stream<Item = V::Result> + 'a
     where
@@ -241,6 +245,7 @@ pub trait VisitVariantFieldsNamed<V: Visitor>: EnumInfo {
 
 pub trait VisitVariantFieldsStaticNamed<V: Visitor>: EnumInfo {
     fn visit_variant_fields_static_named<'a>(
+        info: &'a StructInfoData,
         visitor: &'a mut V,
     ) -> impl Iterator<Item = V::Result> + 'a;
 }
@@ -257,6 +262,7 @@ pub trait VisitVariantFieldsNamedAsync<V: Visitor>: EnumInfo {
 
 pub trait VisitVariantFieldsStaticNamedAsync<V: Visitor>: EnumInfo {
     fn visit_variant_fields_static_named_async<'a>(
+        info: &'a StructInfoData,
         visitor: &'a mut V,
     ) -> impl Stream<Item = V::Result> + Send + 'a
     where

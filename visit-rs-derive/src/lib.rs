@@ -162,7 +162,9 @@ pub fn derive_visit_fields_(input: proc_macro::TokenStream) -> proc_macro::Token
         Ok::<_, syn::Error>([
             derive_struct_info(&ast, data)?,
             derive_visit_fields(&ast, data)?,
+            derive_visit_fields_covered(&ast, data)?,
             derive_visit_fields_async(&ast, data)?,
+            derive_visit_fields_covered_async(&ast, data)?,
             derive_visit_fields_named(&ast, data)?,
             derive_visit_fields_named_async(&ast, data)?,
             derive_visit_fields_static(&ast, data)?,
@@ -241,6 +243,47 @@ fn derive_visit_fields(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStre
     })
 }
 
+fn derive_visit_fields_covered(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsCovered },
+        &syn::parse_quote! { visit_rs::Visit },
+        Some(&syn::parse_quote! { visit_rs::Covered }),
+        false,
+        false,
+    );
+
+    let visit_fields_impl = field_idx_iter(&data.fields).enumerate().map(|(num, idx)| {
+        quote! {
+            #num => {
+                pos += 1;
+                Some(visit_rs::Visit::visit(&visit_rs::Covered(&self.#idx), visitor))
+            }
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_covered<'__visit_rs__a>(
+                &'__visit_rs__a self,
+                visitor: &'__visit_rs__a mut __visit_rs__V
+            ) -> impl Iterator<Item = <__visit_rs__V as visit_rs::Visitor>::Result> {
+                std::iter::from_fn({
+                    let mut pos = 0;
+                    move || match pos {
+                        #(#visit_fields_impl)*
+                        _ => None,
+                    }
+                })
+            }
+        }
+    })
+}
+
 fn derive_visit_fields_async(
     ast: &DeriveInput,
     data: &DataStruct,
@@ -264,6 +307,48 @@ fn derive_visit_fields_async(
     Ok(quote! {
         #impl_t {
             fn visit_fields_async<'__visit_rs__a>(
+                &'__visit_rs__a self,
+                visitor: &'__visit_rs__a mut __visit_rs__V,
+            ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
+            where
+                __visit_rs__V: Send,
+                <__visit_rs__V as visit_rs::Visitor>::Result: Send,
+            {
+                visit_rs::lib::async_stream::stream! {
+                    #(#visit_fields_impl)*
+                    #[allow(unreachable_code)]
+                    if false {
+                        yield unreachable!() as <__visit_rs__V as visit_rs::Visitor>::Result
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn derive_visit_fields_covered_async(
+    ast: &DeriveInput,
+    data: &DataStruct,
+) -> Result<TokenStream, syn::Error> {
+    let impl_t = make_impl(
+        &ast,
+        &data.fields,
+        &syn::parse_quote! { visit_rs::VisitFieldsCoveredAsync },
+        &syn::parse_quote! { visit_rs::VisitAsync },
+        Some(&syn::parse_quote! { visit_rs::Covered }),
+        true,
+        false,
+    );
+
+    let visit_fields_impl = field_idx_iter(&data.fields).map(|idx| {
+        quote! {
+            yield visit_rs::VisitAsync::visit_async(&visit_rs::Covered(&self.#idx), visitor).await;
+        }
+    });
+
+    Ok(quote! {
+        #impl_t {
+            fn visit_fields_covered_async<'__visit_rs__a>(
                 &'__visit_rs__a self,
                 visitor: &'__visit_rs__a mut __visit_rs__V,
             ) -> impl visit_rs::lib::futures::Stream<Item = <__visit_rs__V as visit_rs::Visitor>::Result> + Send + '__visit_rs__a
@@ -585,4 +670,23 @@ fn derive_visit_fields_static_named_async(
             }
         }
     })
+}
+
+mod helpers;
+mod enum_variants;
+
+#[proc_macro_derive(VisitVariants, attributes(visit))]
+pub fn derive_visit_variants(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast: DeriveInput = syn::parse(input).unwrap();
+
+    let syn::Data::Enum(data) = &ast.data else {
+        return syn::Error::new_spanned(&ast.ident, "VisitVariants can only be used on enums")
+            .to_compile_error()
+            .into();
+    };
+
+    match enum_variants::derive_all_variant_traits(&ast, data) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
 }

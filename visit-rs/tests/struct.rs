@@ -1,10 +1,31 @@
+use std::future::Future;
 use std::io::Write;
-use std::pin;
 
-use futures::future::BoxFuture;
-use futures::{FutureExt, SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use tokio::io::AsyncWrite;
-use visit_rs::{Visit, VisitAsync, VisitFields, VisitFieldsAsync, Visitor};
+use visit_rs::{
+    Covered, Named, Static, StructInfo, Visit, VisitAsync, VisitFields, VisitFieldsAsync,
+    VisitFieldsCovered, VisitFieldsCoveredAsync, VisitFieldsNamed, VisitFieldsNamedAsync,
+    VisitFieldsStatic, VisitFieldsStaticAsync, VisitFieldsStaticNamed, VisitFieldsStaticNamedAsync,
+    Visitor,
+};
+
+fn verify_traits<T, V>()
+where
+    V: Visitor,
+    T: StructInfo
+        + VisitFields<V>
+        + VisitFieldsAsync<V>
+        + VisitFieldsCovered<V>
+        + VisitFieldsCoveredAsync<V>
+        + VisitFieldsNamed<V>
+        + VisitFieldsNamedAsync<V>
+        + VisitFieldsStatic<V>
+        + VisitFieldsStaticAsync<V>
+        + VisitFieldsStaticNamed<V>
+        + VisitFieldsStaticNamedAsync<V>,
+{
+}
 
 struct SizeVisitor {
     size: usize,
@@ -38,6 +59,85 @@ macro_rules! impl_size_visit_primitive {
     };
 }
 impl_size_visit_primitive!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, bool, char);
+
+impl VisitAsync<SizeVisitor> for String {
+    fn visit_async<'a>(&'a self, visitor: &'a mut SizeVisitor) -> impl Future<Output = ()> + Send + 'a {
+        async move { self.visit(visitor) }
+    }
+}
+
+impl<T: VisitAsync<SizeVisitor> + Sync> VisitAsync<SizeVisitor> for Vec<T> {
+    fn visit_async<'a>(&'a self, visitor: &'a mut SizeVisitor) -> impl Future<Output = ()> + Send + 'a {
+        async move {
+            for item in self {
+                VisitAsync::visit_async(item, visitor).await;
+            }
+        }
+    }
+}
+
+macro_rules! impl_size_visit_async_primitive {
+    ($($t:ty),*) => {
+        $(
+            impl VisitAsync<SizeVisitor> for $t {
+                fn visit_async<'a>(&'a self, visitor: &'a mut SizeVisitor) -> impl Future<Output = ()> + Send + 'a {
+                    async move { self.visit(visitor) }
+                }
+            }
+        )*
+    };
+}
+impl_size_visit_async_primitive!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, bool, char);
+
+// Add wrapper type implementations for SizeVisitor
+impl<'a, T> Visit<SizeVisitor> for Named<'a, T>
+where
+    T: Visit<SizeVisitor>,
+{
+    fn visit(&self, visitor: &mut SizeVisitor) {
+        self.value.visit(visitor)
+    }
+}
+
+impl<'a, T> VisitAsync<SizeVisitor> for Named<'a, T>
+where
+    T: VisitAsync<SizeVisitor> + Sync,
+{
+    fn visit_async<'b>(&'b self, visitor: &'b mut SizeVisitor) -> impl Future<Output = ()> + Send + 'b {
+        async move { VisitAsync::visit_async(self.value, visitor).await }
+    }
+}
+
+impl<'a, T> Visit<SizeVisitor> for Covered<'a, T>
+where
+    T: Visit<SizeVisitor> + ?Sized,
+{
+    fn visit(&self, visitor: &mut SizeVisitor) {
+        self.0.visit(visitor)
+    }
+}
+
+impl<'a, T> VisitAsync<SizeVisitor> for Covered<'a, T>
+where
+    T: VisitAsync<SizeVisitor> + Sync + ?Sized,
+{
+    fn visit_async<'b>(&'b self, visitor: &'b mut SizeVisitor) -> impl Future<Output = ()> + Send + 'b {
+        async move { VisitAsync::visit_async(self.0, visitor).await }
+    }
+}
+
+impl<T> Visit<SizeVisitor> for Static<T> {
+    fn visit(&self, _visitor: &mut SizeVisitor) {}
+}
+
+impl<T> VisitAsync<SizeVisitor> for Static<T>
+where
+    T: VisitAsync<SizeVisitor>,
+{
+    fn visit_async<'a>(&'a self, _visitor: &'a mut SizeVisitor) -> impl Future<Output = ()> + Send + 'a {
+        async move {}
+    }
+}
 
 struct WriteVisitor<W: Write> {
     writer: W,
@@ -119,6 +219,11 @@ macro_rules! impl_async_write_visit_num {
     };
 }
 impl_async_write_visit_num!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64);
+
+#[test]
+fn test_trait_bounds() {
+    verify_traits::<MyStruct, SizeVisitor>();
+}
 
 #[derive(VisitFields)]
 struct MyStruct {
