@@ -3,9 +3,13 @@ use std::collections::HashSet;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    parse_quote, DataStruct, DeriveInput, Fields, Ident, Lit, Meta, Path, WhereClause,
-    WherePredicate,
+    DataStruct, DeriveInput, Fields, Ident, Lit, Meta, Path, WhereClause, WherePredicate,
+    parse_quote,
 };
+
+mod attrs;
+mod helpers;
+use helpers::{get_field_rename, get_rename_all_attribute};
 
 fn get_rename_attribute(ast: &DeriveInput) -> Option<String> {
     for attr in &ast.attrs {
@@ -125,8 +129,13 @@ fn field_idx_iter(fields: &Fields) -> impl Iterator<Item = TokenStream> {
     })
 }
 
-fn field_name_idx_iter(fields: &syn::Fields) -> impl Iterator<Item = (TokenStream, TokenStream)> {
-    field_iter(fields).map(|(index, field)| {
+fn field_name_idx_iter<'a>(
+    ast: &'a DeriveInput,
+    fields: &'a syn::Fields,
+) -> impl Iterator<Item = (TokenStream, TokenStream)> + 'a {
+    let rename_all_rule = get_rename_all_attribute(ast);
+
+    field_iter(fields).map(move |(index, field)| {
         let field_name = &field.ident;
         let idx = if let Some(name) = field_name {
             quote! { #name }
@@ -134,8 +143,9 @@ fn field_name_idx_iter(fields: &syn::Fields) -> impl Iterator<Item = (TokenStrea
             let index = syn::Index::from(index);
             quote! { #index }
         };
-        let name = if let Some(name) = field_name {
-            quote! { Some(stringify!(#name)) }
+        let name = if field_name.is_some() {
+            let renamed = get_field_rename(field, rename_all_rule).unwrap();
+            quote! { Some(#renamed) }
         } else {
             quote! { None }
         };
@@ -194,12 +204,31 @@ fn derive_struct_info(ast: &DeriveInput, data: &DataStruct) -> Result<TokenStrea
 
     let name = get_rename_attribute(ast).unwrap_or_else(|| ident.to_string());
 
+    // Extract struct-level metadata (both visit and serde attributes)
+    let struct_meta = attrs::extract_all_meta(&ast.attrs);
+
+    let struct_meta_ref = if !struct_meta.is_empty() {
+        let count = struct_meta.len();
+        quote! {
+            if cfg!(feature = "meta") {
+                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#struct_meta),*];
+                &META
+            } else {
+                &[]
+            }
+        }
+    } else {
+        quote! { &[] }
+    };
+
     Ok(quote! {
         impl #impl_generics visit_rs::StructInfo for #ident #ty_generics #where_clause {
             const DATA: visit_rs::StructInfoData = visit_rs::StructInfoData {
                 name: #name,
                 named_fields: #named_fields,
                 field_count: #field_count,
+                #[cfg(feature = "meta")]
+                metadata: #struct_meta_ref,
             };
         }
     })
@@ -372,6 +401,8 @@ fn derive_visit_fields_named(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
+    let ident = &ast.ident;
+
     let impl_t = make_impl(
         &ast,
         &data.fields,
@@ -382,17 +413,42 @@ fn derive_visit_fields_named(
         false,
     );
 
+    // Extract field metadata
+    let field_metas: Vec<_> = field_iter(&data.fields)
+        .map(|(_, field)| attrs::extract_all_meta(&field.attrs))
+        .collect();
+
     let visit_fields_named_impl =
-        field_name_idx_iter(&data.fields)
+        field_name_idx_iter(ast, &data.fields)
             .enumerate()
             .map(|(num, (name, idx))| {
+                let metadata_ref = if !field_metas[num].is_empty() {
+                    let metas = &field_metas[num];
+                    let count = metas.len();
+                    quote! {
+                        if cfg!(feature = "meta") {
+                            const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                            &META
+                        } else {
+                            &[]
+                        }
+                    }
+                } else {
+                    quote! { &[] }
+                };
+
                 quote! {
                     #num => {
                         pos += 1;
-                        Some(visit_rs::Visit::visit(&visit_rs::Named {
-                            name: #name,
-                            value: &self.#idx,
-                        }, visitor))
+                        Some({
+                            let named = visit_rs::Named {
+                                name: #name,
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: &self.#idx,
+                            };
+                            visit_rs::Visit::visit(&named, visitor)
+                        })
                     }
                 }
             });
@@ -419,6 +475,8 @@ fn derive_visit_fields_named_async(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
+    let ident = &ast.ident;
+
     let impl_t = make_impl(
         &ast,
         &data.fields,
@@ -429,14 +487,42 @@ fn derive_visit_fields_named_async(
         false,
     );
 
-    let visit_fields_named_impl = field_name_idx_iter(&data.fields).map(|(name, idx)| {
-        quote! {
-            yield visit_rs::VisitAsync::visit_async(&visit_rs::Named {
-                name: #name,
-                value: &self.#idx,
-            }, visitor).await;
-        }
-    });
+    // Extract field metadata
+    let field_metas: Vec<_> = field_iter(&data.fields)
+        .map(|(_, field)| attrs::extract_all_meta(&field.attrs))
+        .collect();
+
+    let visit_fields_named_impl =
+        field_name_idx_iter(ast, &data.fields)
+            .enumerate()
+            .map(|(num, (name, idx))| {
+                let metadata_ref = if !field_metas[num].is_empty() {
+                    let metas = &field_metas[num];
+                    let count = metas.len();
+                    quote! {
+                        if cfg!(feature = "meta") {
+                            const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                            &META
+                        } else {
+                            &[]
+                        }
+                    }
+                } else {
+                    quote! { &[] }
+                };
+
+                quote! {
+                    {
+                        let named = visit_rs::Named {
+                            name: #name,
+                            #[cfg(feature = "meta")]
+                            metadata: #metadata_ref,
+                            value: &self.#idx,
+                        };
+                        yield visit_rs::VisitAsync::visit_async(&named, visitor).await;
+                    }
+                }
+            });
 
     Ok(quote! {
         #impl_t {
@@ -551,6 +637,8 @@ fn derive_visit_fields_static_named(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
+    let ident = &ast.ident;
+
     let impl_t = make_impl(
         &ast,
         &data.fields,
@@ -561,18 +649,44 @@ fn derive_visit_fields_static_named(
         true,
     );
 
-    let field_name_type_iter = field_iter(&data.fields).map(|(_, field)| {
-        let field_name = &field.ident;
-        let ty = &field.ty;
-        let name = if let Some(name) = field_name {
-            quote! { Some(stringify!(#name)) }
-        } else {
-            quote! { None }
-        };
-        (name, ty)
-    });
+    let rename_all_rule = get_rename_all_attribute(ast);
 
-    let visit_fields_named_impl = field_name_type_iter.enumerate().map(|(num, (name, ty))| {
+    // Extract field metadata
+    let field_metas: Vec<_> = field_iter(&data.fields)
+        .map(|(_, field)| attrs::extract_all_meta(&field.attrs))
+        .collect();
+
+    let field_name_type_iter = field_iter(&data.fields)
+        .enumerate()
+        .map(|(num, (_, field))| {
+            let field_name = &field.ident;
+            let ty = &field.ty;
+            let name = if field_name.is_some() {
+                let renamed = get_field_rename(field, rename_all_rule).unwrap();
+                quote! { Some(#renamed) }
+            } else {
+                quote! { None }
+            };
+
+            let metadata_ref = if !field_metas[num].is_empty() {
+                let metas = &field_metas[num];
+                let count = metas.len();
+                quote! {
+                    if cfg!(feature = "meta") {
+                        const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                        &META
+                    } else {
+                        &[]
+                    }
+                }
+            } else {
+                quote! { &[] }
+            };
+
+            (name, ty, metadata_ref)
+        });
+
+    let visit_fields_named_impl = field_name_type_iter.enumerate().map(|(num, (name, ty, metadata_ref))| {
         quote! {
             #num => {
                 pos += 1;
@@ -580,6 +694,8 @@ fn derive_visit_fields_static_named(
                     static __VISIT_RS_STATIC: visit_rs::Static<()> = visit_rs::Static::new();
                     let named = visit_rs::Named {
                         name: #name,
+                        #[cfg(feature = "meta")]
+                        metadata: #metadata_ref,
                         value: unsafe {
                             // SAFETY: Static<T> is zero-sized and contains only PhantomData,
                             // so transmuting from &Static<()> to &Static<#ty> is safe
@@ -613,6 +729,8 @@ fn derive_visit_fields_static_named_async(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
+    let ident = &ast.ident;
+
     let impl_t = make_impl(
         &ast,
         &data.fields,
@@ -623,23 +741,51 @@ fn derive_visit_fields_static_named_async(
         true,
     );
 
-    let field_name_type_iter = field_iter(&data.fields).map(|(_, field)| {
-        let field_name = &field.ident;
-        let ty = &field.ty;
-        let name = if let Some(name) = field_name {
-            quote! { Some(stringify!(#name)) }
-        } else {
-            quote! { None }
-        };
-        (name, ty)
-    });
+    let rename_all_rule = get_rename_all_attribute(ast);
 
-    let visit_fields_named_impl = field_name_type_iter.map(|(name, ty)| {
+    // Extract field metadata
+    let field_metas: Vec<_> = field_iter(&data.fields)
+        .map(|(_, field)| attrs::extract_all_meta(&field.attrs))
+        .collect();
+
+    let field_name_type_iter = field_iter(&data.fields)
+        .enumerate()
+        .map(|(num, (_, field))| {
+            let field_name = &field.ident;
+            let ty = &field.ty;
+            let name = if field_name.is_some() {
+                let renamed = get_field_rename(field, rename_all_rule).unwrap();
+                quote! { Some(#renamed) }
+            } else {
+                quote! { None }
+            };
+
+            let metadata_ref = if !field_metas[num].is_empty() {
+                let metas = &field_metas[num];
+                let count = metas.len();
+                quote! {
+                    if cfg!(feature = "meta") {
+                        const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                        &META
+                    } else {
+                        &[]
+                    }
+                }
+            } else {
+                quote! { &[] }
+            };
+
+            (name, ty, metadata_ref)
+        });
+
+    let visit_fields_named_impl = field_name_type_iter.map(|(name, ty, metadata_ref)| {
         quote! {
             {
                 static __VISIT_RS_STATIC: visit_rs::Static<()> = visit_rs::Static::new();
                 let named = visit_rs::Named {
                     name: #name,
+                    #[cfg(feature = "meta")]
+                    metadata: #metadata_ref,
                     value: unsafe {
                         // SAFETY: Static<T> is zero-sized and contains only PhantomData,
                         // so transmuting from &Static<()> to &Static<#ty> is safe
@@ -672,7 +818,6 @@ fn derive_visit_fields_static_named_async(
     })
 }
 
-mod helpers;
 mod enum_variants;
 
 #[proc_macro_derive(VisitVariants, attributes(visit))]

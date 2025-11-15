@@ -71,25 +71,37 @@ impl Visit<FmtVisitor> for Vec<u8> {
 }
 
 impl VisitAsync<FmtVisitor> for String {
-    fn visit_async<'a>(&'a self, visitor: &'a mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
+    fn visit_async<'a>(
+        &'a self,
+        visitor: &'a mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
         async move { self.visit(visitor) }
     }
 }
 
 impl VisitAsync<FmtVisitor> for i32 {
-    fn visit_async<'a>(&'a self, visitor: &'a mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
+    fn visit_async<'a>(
+        &'a self,
+        visitor: &'a mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
         async move { self.visit(visitor) }
     }
 }
 
 impl VisitAsync<FmtVisitor> for f32 {
-    fn visit_async<'a>(&'a self, visitor: &'a mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
+    fn visit_async<'a>(
+        &'a self,
+        visitor: &'a mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
         async move { self.visit(visitor) }
     }
 }
 
 impl VisitAsync<FmtVisitor> for Vec<u8> {
-    fn visit_async<'a>(&'a self, visitor: &'a mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
+    fn visit_async<'a>(
+        &'a self,
+        visitor: &'a mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
         async move { self.visit(visitor) }
     }
 }
@@ -134,7 +146,7 @@ where
 {
     fn visit(&self, visitor: &mut FmtVisitor) -> <FmtVisitor as Visitor>::Result {
         if let Some(name) = self.name {
-            write!(&mut visitor.0, "{name}:");
+            write!(&mut visitor.0, "{name}:")?;
         }
         self.value.visit(visitor)?;
         visitor.0.push(',');
@@ -147,7 +159,10 @@ impl<'a, T> VisitAsync<FmtVisitor> for Named<'a, T>
 where
     T: VisitAsync<FmtVisitor> + Sync,
 {
-    fn visit_async<'b>(&'b self, visitor: &'b mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'b {
+    fn visit_async<'b>(
+        &'b self,
+        visitor: &'b mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'b {
         async move {
             if let Some(name) = self.name {
                 write!(&mut visitor.0, "{name}:")?;
@@ -172,7 +187,10 @@ impl<'a, T> VisitAsync<FmtVisitor> for visit_rs::Covered<'a, T>
 where
     T: VisitAsync<FmtVisitor> + Sync + ?Sized,
 {
-    fn visit_async<'b>(&'b self, visitor: &'b mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'b {
+    fn visit_async<'b>(
+        &'b self,
+        visitor: &'b mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'b {
         async move { VisitAsync::visit_async(self.0, visitor).await }
     }
 }
@@ -181,7 +199,10 @@ impl<T> VisitAsync<FmtVisitor> for Static<T>
 where
     T: VisitAsync<FmtVisitor>,
 {
-    fn visit_async<'a>(&'a self, _visitor: &'a mut FmtVisitor) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
+    fn visit_async<'a>(
+        &'a self,
+        _visitor: &'a mut FmtVisitor,
+    ) -> impl Future<Output = <FmtVisitor as Visitor>::Result> + Send + 'a {
         async move { Ok(()) }
     }
 }

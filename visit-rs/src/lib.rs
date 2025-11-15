@@ -7,6 +7,9 @@ pub use visit_rs_derive::*;
 #[cfg(feature = "serde")]
 pub mod serde;
 
+#[cfg(feature = "meta")]
+pub mod metadata;
+
 pub mod lib {
     pub use async_stream;
     pub use futures;
@@ -14,6 +17,12 @@ pub mod lib {
 
 pub trait Visitor {
     type Result;
+}
+
+pub trait WrapperVisitor<'a>: Visitor {
+    type Inner: Visitor<Result = Self::Result>;
+    fn as_inner(&mut self) -> &mut Self::Inner;
+    fn wrap(visitor: &'a mut Self::Inner) -> Self;
 }
 
 pub trait Visit<V: Visitor> {
@@ -31,11 +40,13 @@ pub trait StructInfo {
     const DATA: StructInfoData;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StructInfoData {
     pub name: &'static str,
     pub named_fields: bool,
     pub field_count: usize,
+    #[cfg(feature = "meta")]
+    pub metadata: &'static [metadata::AttributeMeta],
 }
 
 pub trait VisitFields<V: Visitor>: StructInfo {
@@ -82,7 +93,7 @@ pub trait VisitFieldsStaticAsync<V: Visitor>: StructInfo {
 
 pub trait VisitFieldsNamed<V: Visitor>: StructInfo {
     fn visit_fields_named<'a>(&'a self, visitor: &'a mut V)
-        -> impl Iterator<Item = V::Result> + 'a;
+    -> impl Iterator<Item = V::Result> + 'a;
 }
 
 pub trait VisitFieldsStaticNamed<V: Visitor>: StructInfo {
@@ -108,9 +119,11 @@ pub trait VisitFieldsStaticNamedAsync<V: Visitor>: StructInfo {
         V::Result: Send;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Named<'a, T: ?Sized> {
     pub name: Option<&'static str>,
+    #[cfg(feature = "meta")]
+    pub metadata: &'static [metadata::AttributeMeta],
     pub value: &'a T,
 }
 
@@ -165,13 +178,15 @@ pub trait EnumInfo {
     fn variant_info_by_name(name: &str) -> Option<StructInfoData>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EnumInfoData {
     pub name: &'static str,
     pub variant_count: usize,
+    #[cfg(feature = "meta")]
+    pub metadata: &'static [metadata::AttributeMeta],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Variant<'a, T: ?Sized> {
     pub info: StructInfoData,
     pub value: &'a T,

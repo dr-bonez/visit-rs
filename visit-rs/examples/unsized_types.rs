@@ -75,6 +75,8 @@ fn main() {
             "  {}",
             Named {
                 name: Some("my_string"),
+                #[cfg(feature = "meta")]
+                metadata: &[],
                 value: &STATIC_STRING
             }
             .visit(&mut visitor)
@@ -88,6 +90,8 @@ fn main() {
             "  {}",
             Named {
                 name: Some("my_str"),
+                #[cfg(feature = "meta")]
+                metadata: &[],
                 value: &STATIC_STR
             }
             .visit(&mut visitor)
@@ -99,6 +103,8 @@ fn main() {
             "  {}",
             Named {
                 name: Some("my_slice"),
+                #[cfg(feature = "meta")]
+                metadata: &[],
                 value: &STATIC_SLICE
             }
             .visit(&mut visitor)

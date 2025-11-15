@@ -1,11 +1,17 @@
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{DataEnum, DeriveInput, Fields, Ident};
 use std::collections::HashSet;
+use syn::{DataEnum, DeriveInput, Fields, Ident};
 
-use crate::helpers::get_rename_attribute;
+use crate::attrs;
+use crate::helpers::{
+    get_field_rename, get_rename_all_attribute, get_rename_attribute, get_variant_rename,
+};
 
-pub fn derive_all_variant_traits(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+pub fn derive_all_variant_traits(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let enum_info = derive_enum_info(ast, data)?;
     let visit_variant = derive_visit_variant(ast, data)?;
     let visit_variants_static = derive_visit_variants_static(ast, data)?;
@@ -18,7 +24,8 @@ pub fn derive_all_variant_traits(ast: &DeriveInput, data: &DataEnum) -> Result<T
     let visit_variant_fields_covered_async = derive_visit_variant_fields_covered_async(ast, data)?;
     let visit_variant_fields_static_async = derive_visit_variant_fields_static_async(ast, data)?;
     let visit_variant_fields_named_async = derive_visit_variant_fields_named_async(ast, data)?;
-    let visit_variant_fields_static_named_async = derive_visit_variant_fields_static_named_async(ast, data)?;
+    let visit_variant_fields_static_named_async =
+        derive_visit_variant_fields_static_named_async(ast, data)?;
 
     Ok(quote! {
         #enum_info
@@ -44,66 +51,152 @@ fn derive_enum_info(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, s
     let name = get_rename_attribute(ast).unwrap_or_else(|| ident.to_string());
     let variant_count = data.variants.len();
 
-    // Generate StructInfoData for each variant
-    let variant_infos = data.variants.iter().map(|variant| {
-        let variant_name = variant.ident.to_string();
-        let named_fields = matches!(variant.fields, Fields::Named(_));
-        let field_count = variant.fields.iter().count();
+    // Extract enum-level metadata
+    let enum_meta = attrs::extract_all_meta(&ast.attrs);
 
+    let enum_meta_ref = if !enum_meta.is_empty() {
+        let count = enum_meta.len();
         quote! {
-            visit_rs::StructInfoData {
-                name: #variant_name,
-                named_fields: #named_fields,
-                field_count: #field_count,
+            if cfg!(feature = "meta") {
+                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#enum_meta),*];
+                &META
+            } else {
+                &[]
             }
         }
-    });
+    } else {
+        quote! { &[] }
+    };
+
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
+    // Collect renamed variant names and check for uniqueness
+    let renamed_variants: Vec<_> = data
+        .variants
+        .iter()
+        .map(|variant| get_variant_rename(variant, rename_all_rule))
+        .collect();
+
+    // Validate uniqueness
+    let mut seen_names = HashSet::new();
+    for (idx, renamed_name) in renamed_variants.iter().enumerate() {
+        if !seen_names.insert(renamed_name) {
+            let original_name = &data.variants[idx].ident;
+            return Err(syn::Error::new_spanned(
+                original_name,
+                format!(
+                    "Variant name '{}' is not unique after applying rename rules",
+                    renamed_name
+                ),
+            ));
+        }
+    }
+
+    // Extract variant-level metadata
+    let variant_metas: Vec<_> = data
+        .variants
+        .iter()
+        .map(|variant| attrs::extract_all_meta(&variant.attrs))
+        .collect();
+
+    let variant_meta_refs: Vec<_> = variant_metas
+        .iter()
+        .map(|metas| {
+            if !metas.is_empty() {
+                let count = metas.len();
+                quote! {
+                    if cfg!(feature = "meta") {
+                        const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                        &META
+                    } else {
+                        &[]
+                    }
+                }
+            } else {
+                quote! { &[] }
+            }
+        })
+        .collect();
+
+    // Generate StructInfoData for each variant
+    let variant_infos = data.variants.iter().enumerate().zip(&renamed_variants).map(
+        |((idx, _variant), renamed_name)| {
+            let variant = &data.variants[idx];
+            let named_fields = matches!(variant.fields, Fields::Named(_));
+            let field_count = variant.fields.iter().count();
+            let metadata_ref = &variant_meta_refs[idx];
+
+            quote! {
+                visit_rs::StructInfoData {
+                    name: #renamed_name,
+                    named_fields: #named_fields,
+                    field_count: #field_count,
+                    #[cfg(feature = "meta")]
+                    metadata: #metadata_ref,
+                }
+            }
+        },
+    );
 
     // Generate variant_info match arms
-    let variant_info_arms = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let variant_name_str = variant_name.to_string();
-        let named_fields = matches!(variant.fields, Fields::Named(_));
-        let field_count = variant.fields.iter().count();
+    let variant_info_arms = data.variants.iter().enumerate().zip(&renamed_variants).map(
+        |((idx, variant), renamed_name)| {
+            let variant_name = &variant.ident;
+            let named_fields = matches!(variant.fields, Fields::Named(_));
+            let field_count = variant.fields.iter().count();
 
-        let pattern = match &variant.fields {
-            Fields::Named(_) => quote! { Self::#variant_name { .. } },
-            Fields::Unnamed(_) => {
-                let placeholders = (0..field_count).map(|_| quote! { _ });
-                quote! { Self::#variant_name(#(#placeholders),*) }
-            }
-            Fields::Unit => quote! { Self::#variant_name },
-        };
+            let pattern = match &variant.fields {
+                Fields::Named(_) => quote! { Self::#variant_name { .. } },
+                Fields::Unnamed(_) => {
+                    let placeholders = (0..field_count).map(|_| quote! { _ });
+                    quote! { Self::#variant_name(#(#placeholders),*) }
+                }
+                Fields::Unit => quote! { Self::#variant_name },
+            };
 
-        quote! {
-            #pattern => visit_rs::StructInfoData {
-                name: #variant_name_str,
-                named_fields: #named_fields,
-                field_count: #field_count,
+            let metadata_ref = &variant_meta_refs[idx];
+
+            quote! {
+                #pattern => visit_rs::StructInfoData {
+                    name: #renamed_name,
+                    named_fields: #named_fields,
+                    field_count: #field_count,
+                    #[cfg(feature = "meta")]
+                    metadata: #metadata_ref,
+                }
             }
-        }
-    });
+        },
+    );
 
     // Generate variant_info_by_name match arms
-    let variant_by_name_arms = data.variants.iter().map(|variant| {
-        let variant_name_str = variant.ident.to_string();
-        let named_fields = matches!(variant.fields, Fields::Named(_));
-        let field_count = variant.fields.iter().count();
+    let variant_by_name_arms = renamed_variants
+        .iter()
+        .enumerate()
+        .map(|(idx, renamed_name)| {
+            let variant = &data.variants[idx];
+            let named_fields = matches!(variant.fields, Fields::Named(_));
+            let field_count = variant.fields.iter().count();
+            let metadata_ref = &variant_meta_refs[idx];
 
-        quote! {
-            #variant_name_str => Some(visit_rs::StructInfoData {
-                name: #variant_name_str,
-                named_fields: #named_fields,
-                field_count: #field_count,
-            })
-        }
-    });
+            quote! {
+                #renamed_name => Some(visit_rs::StructInfoData {
+                    name: #renamed_name,
+                    named_fields: #named_fields,
+                    field_count: #field_count,
+                    #[cfg(feature = "meta")]
+                    metadata: #metadata_ref,
+                })
+            }
+        });
 
     Ok(quote! {
         impl #impl_generics visit_rs::EnumInfo for #ident #ty_generics #where_clause {
             const DATA: visit_rs::EnumInfoData = visit_rs::EnumInfoData {
                 name: #name,
                 variant_count: #variant_count,
+                #[cfg(feature = "meta")]
+                metadata: #enum_meta_ref,
             };
 
             fn variants() -> impl IntoIterator<Item = visit_rs::StructInfoData> + Send + Sync + 'static {
@@ -148,7 +241,10 @@ fn derive_visit_variant(ast: &DeriveInput, _data: &DataEnum) -> Result<TokenStre
     })
 }
 
-fn derive_visit_variants_static(ast: &DeriveInput, _data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variants_static(
+    ast: &DeriveInput,
+    _data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -172,7 +268,10 @@ fn derive_visit_variants_static(ast: &DeriveInput, _data: &DataEnum) -> Result<T
     })
 }
 
-fn derive_visit_variant_fields(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -261,7 +360,10 @@ fn derive_visit_variant_fields(ast: &DeriveInput, data: &DataEnum) -> Result<Tok
     })
 }
 
-fn derive_visit_variant_fields_covered(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_covered(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -350,7 +452,10 @@ fn derive_visit_variant_fields_covered(ast: &DeriveInput, data: &DataEnum) -> Re
     })
 }
 
-fn derive_visit_variant_fields_static(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_static(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -361,34 +466,44 @@ fn derive_visit_variant_fields_static(ast: &DeriveInput, data: &DataEnum) -> Res
         for field in &variant.fields {
             let ty = &field.ty;
             if ty_set.insert(ty) {
-                field_predicates.push(quote! { visit_rs::Static<#ty>: visit_rs::Visit<__visit_rs__V> });
+                field_predicates
+                    .push(quote! { visit_rs::Static<#ty>: visit_rs::Visit<__visit_rs__V> });
             }
         }
     }
 
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
     // Build a list of all field types per variant for static iteration
-    let variant_field_types: Vec<_> = data.variants.iter().map(|variant| {
-        let variant_name_str = variant.ident.to_string();
-        let field_types: Vec<_> = variant.fields.iter().map(|f| &f.ty).collect();
-        (variant_name_str, field_types)
-    }).collect();
+    let variant_field_types: Vec<_> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name_str = get_variant_rename(variant, rename_all_rule);
+            let field_types: Vec<_> = variant.fields.iter().map(|f| &f.ty).collect();
+            (variant_name_str, field_types)
+        })
+        .collect();
 
     // Generate match arms for each variant name
-    let variant_arms = variant_field_types.iter().map(|(variant_name, field_types)| {
-        let field_matches = (0..field_types.len()).map(|idx| {
-            let ty = &field_types[idx];
+    let variant_arms = variant_field_types
+        .iter()
+        .map(|(variant_name, field_types)| {
+            let field_matches = (0..field_types.len()).map(|idx| {
+                let ty = &field_types[idx];
+                quote! {
+                    #idx => visit_rs::Static::<#ty>::new().visit(visitor)
+                }
+            });
+
             quote! {
-                #idx => visit_rs::Static::<#ty>::new().visit(visitor)
+                #variant_name => match i {
+                    #(#field_matches,)*
+                    _ => return None,
+                }
             }
         });
-
-        quote! {
-            #variant_name => match i {
-                #(#field_matches,)*
-                _ => return None,
-            }
-        }
-    });
 
     Ok(quote! {
         impl<__visit_rs__V, #impl_generics> visit_rs::VisitVariantFieldsStatic<__visit_rs__V> for #ident #ty_generics
@@ -418,7 +533,10 @@ fn derive_visit_variant_fields_static(ast: &DeriveInput, data: &DataEnum) -> Res
     })
 }
 
-fn derive_visit_variant_fields_named(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_named(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -433,19 +551,55 @@ fn derive_visit_variant_fields_named(ast: &DeriveInput, data: &DataEnum) -> Resu
         }
     }
 
-    let variant_arms = data.variants.iter().map(|variant| {
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
+    // Extract field metadata for all variants
+    let variant_field_metas: Vec<Vec<Vec<TokenStream>>> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            variant
+                .fields
+                .iter()
+                .map(|field| attrs::extract_all_meta(&field.attrs))
+                .collect()
+        })
+        .collect();
+
+    let variant_arms = data.variants.iter().enumerate().map(|(variant_idx, variant)| {
         let variant_name = &variant.ident;
 
         match &variant.fields {
             Fields::Named(fields) => {
                 let field_names: Vec<_> = fields.named.iter().map(|f| &f.ident).collect();
-                let field_matches = (0..field_names.len()).map(|idx| {
-                    let field_name = &field_names[idx];
+                let field_matches = fields.named.iter().enumerate().map(|(idx, field)| {
+                    let field_name = field.ident.as_ref().unwrap();
+                    let renamed_field = get_field_rename(field, rename_all_rule).unwrap_or_else(|| field_name.to_string());
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        #idx => visit_rs::Named {
-                            name: Some(stringify!(#field_name)),
-                            value: #field_name,
-                        }.visit(visitor)
+                        #idx => {
+                            let named = visit_rs::Named {
+                                name: Some(#renamed_field),
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: #field_name,
+                            };
+                            named.visit(visitor)
+                        }
                     }
                 });
 
@@ -462,11 +616,30 @@ fn derive_visit_variant_fields_named(ast: &DeriveInput, data: &DataEnum) -> Resu
                     .collect();
                 let field_matches = (0..field_idents.len()).map(|idx| {
                     let field_ident = &field_idents[idx];
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        #idx => visit_rs::Named {
-                            name: None,
-                            value: #field_ident,
-                        }.visit(visitor)
+                        #idx => {
+                            let named = visit_rs::Named {
+                                name: None,
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: #field_ident,
+                            };
+                            named.visit(visitor)
+                        }
                     }
                 });
 
@@ -511,7 +684,10 @@ fn derive_visit_variant_fields_named(ast: &DeriveInput, data: &DataEnum) -> Resu
     })
 }
 
-fn derive_visit_variant_fields_static_named(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_static_named(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -526,20 +702,56 @@ fn derive_visit_variant_fields_static_named(ast: &DeriveInput, data: &DataEnum) 
         }
     }
 
-    let variant_match_arms = data.variants.iter().map(|variant| {
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
+    // Extract field metadata for all variants
+    let variant_field_metas: Vec<Vec<Vec<TokenStream>>> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            variant
+                .fields
+                .iter()
+                .map(|field| attrs::extract_all_meta(&field.attrs))
+                .collect()
+        })
+        .collect();
+
+    let variant_match_arms = data.variants.iter().enumerate().map(|(variant_idx, variant)| {
         let variant_name = &variant.ident;
-        let variant_name_str = variant_name.to_string();
+        let variant_name_str = get_variant_rename(variant, rename_all_rule);
 
         match &variant.fields {
             Fields::Named(fields) => {
                 let field_visits = fields.named.iter().enumerate().map(|(idx, field)| {
                     let ty = &field.ty;
                     let field_name = field.ident.as_ref().unwrap();
+                    let renamed_field = get_field_rename(field, rename_all_rule).unwrap_or_else(|| field_name.to_string());
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        #idx => visit_rs::Named {
-                            name: Some(stringify!(#field_name)),
-                            value: &visit_rs::Static::<#ty>::new(),
-                        }.visit(visitor)
+                        #idx => {
+                            let named = visit_rs::Named {
+                                name: Some(#renamed_field),
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: &visit_rs::Static::<#ty>::new(),
+                            };
+                            named.visit(visitor)
+                        }
                     }
                 });
 
@@ -553,11 +765,30 @@ fn derive_visit_variant_fields_static_named(ast: &DeriveInput, data: &DataEnum) 
             Fields::Unnamed(fields) => {
                 let field_visits = fields.unnamed.iter().enumerate().map(|(idx, field)| {
                     let ty = &field.ty;
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        #idx => visit_rs::Named {
-                            name: None,
-                            value: &visit_rs::Static::<#ty>::new(),
-                        }.visit(visitor)
+                        #idx => {
+                            let named = visit_rs::Named {
+                                name: None,
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: &visit_rs::Static::<#ty>::new(),
+                            };
+                            named.visit(visitor)
+                        }
                     }
                 });
 
@@ -606,7 +837,10 @@ fn derive_visit_variant_fields_static_named(ast: &DeriveInput, data: &DataEnum) 
     })
 }
 
-fn derive_visit_variant_fields_async(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_async(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -685,7 +919,10 @@ fn derive_visit_variant_fields_async(ast: &DeriveInput, data: &DataEnum) -> Resu
     })
 }
 
-fn derive_visit_variant_fields_covered_async(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_covered_async(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -764,7 +1001,10 @@ fn derive_visit_variant_fields_covered_async(ast: &DeriveInput, data: &DataEnum)
     })
 }
 
-fn derive_visit_variant_fields_static_async(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_static_async(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -774,14 +1014,18 @@ fn derive_visit_variant_fields_static_async(ast: &DeriveInput, data: &DataEnum) 
         for field in &variant.fields {
             let ty = &field.ty;
             if ty_set.insert(ty) {
-                field_predicates.push(quote! { visit_rs::Static<#ty>: visit_rs::VisitAsync<__visit_rs__V> });
+                field_predicates
+                    .push(quote! { visit_rs::Static<#ty>: visit_rs::VisitAsync<__visit_rs__V> });
             }
         }
     }
 
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
     let variant_match_arms = data.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
-        let variant_name_str = variant_name.to_string();
+        let variant_name_str = get_variant_rename(variant, rename_all_rule);
 
         match &variant.fields {
             Fields::Named(fields) => {
@@ -845,7 +1089,10 @@ fn derive_visit_variant_fields_static_async(ast: &DeriveInput, data: &DataEnum) 
     })
 }
 
-fn derive_visit_variant_fields_named_async(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_named_async(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -860,18 +1107,55 @@ fn derive_visit_variant_fields_named_async(ast: &DeriveInput, data: &DataEnum) -
         }
     }
 
-    let variant_arms = data.variants.iter().map(|variant| {
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
+    // Extract field metadata for all variants
+    let variant_field_metas: Vec<Vec<Vec<TokenStream>>> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            variant
+                .fields
+                .iter()
+                .map(|field| attrs::extract_all_meta(&field.attrs))
+                .collect()
+        })
+        .collect();
+
+    let variant_arms = data.variants.iter().enumerate().map(|(variant_idx, variant)| {
         let variant_name = &variant.ident;
 
         match &variant.fields {
             Fields::Named(fields) => {
                 let field_names: Vec<_> = fields.named.iter().map(|f| &f.ident).collect();
-                let field_visits = field_names.iter().map(|field_name| {
+                let field_visits = fields.named.iter().enumerate().map(|(idx, field)| {
+                    let field_name = field.ident.as_ref().unwrap();
+                    let renamed_field = get_field_rename(field, rename_all_rule).unwrap_or_else(|| field_name.to_string());
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        yield visit_rs::VisitAsync::visit_async(&visit_rs::Named {
-                            name: Some(stringify!(#field_name)),
-                            value: #field_name,
-                        }, visitor).await;
+                        {
+                            let named = visit_rs::Named {
+                                name: Some(#renamed_field),
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: #field_name,
+                            };
+                            yield visit_rs::VisitAsync::visit_async(&named, visitor).await;
+                        }
                     }
                 });
 
@@ -885,12 +1169,31 @@ fn derive_visit_variant_fields_named_async(ast: &DeriveInput, data: &DataEnum) -
                 let field_idents: Vec<_> = (0..fields.unnamed.len())
                     .map(|i| Ident::new(&format!("tup_{}", i), Span::call_site()))
                     .collect();
-                let field_visits = field_idents.iter().map(|field_ident| {
+                let field_visits = field_idents.iter().enumerate().map(|(idx, field_ident)| {
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        yield visit_rs::VisitAsync::visit_async(&visit_rs::Named {
-                            name: None,
-                            value: #field_ident,
-                        }, visitor).await;
+                        {
+                            let named = visit_rs::Named {
+                                name: None,
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: #field_ident,
+                            };
+                            yield visit_rs::VisitAsync::visit_async(&named, visitor).await;
+                        }
                     }
                 });
 
@@ -934,7 +1237,10 @@ fn derive_visit_variant_fields_named_async(ast: &DeriveInput, data: &DataEnum) -
     })
 }
 
-fn derive_visit_variant_fields_static_named_async(ast: &DeriveInput, data: &DataEnum) -> Result<TokenStream, syn::Error> {
+fn derive_visit_variant_fields_static_named_async(
+    ast: &DeriveInput,
+    data: &DataEnum,
+) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
@@ -949,20 +1255,56 @@ fn derive_visit_variant_fields_static_named_async(ast: &DeriveInput, data: &Data
         }
     }
 
-    let variant_match_arms = data.variants.iter().map(|variant| {
+    // Get rename_all rule for variants
+    let rename_all_rule = get_rename_all_attribute(ast);
+
+    // Extract field metadata for all variants
+    let variant_field_metas: Vec<Vec<Vec<TokenStream>>> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            variant
+                .fields
+                .iter()
+                .map(|field| attrs::extract_all_meta(&field.attrs))
+                .collect()
+        })
+        .collect();
+
+    let variant_match_arms = data.variants.iter().enumerate().map(|(variant_idx, variant)| {
         let variant_name = &variant.ident;
-        let variant_name_str = variant_name.to_string();
+        let variant_name_str = get_variant_rename(variant, rename_all_rule);
 
         match &variant.fields {
             Fields::Named(fields) => {
-                let field_visits = fields.named.iter().map(|field| {
+                let field_visits = fields.named.iter().enumerate().map(|(idx, field)| {
                     let ty = &field.ty;
                     let field_name = field.ident.as_ref().unwrap();
+                    let renamed_field = get_field_rename(field, rename_all_rule).unwrap_or_else(|| field_name.to_string());
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        yield visit_rs::VisitAsync::visit_async(&visit_rs::Named {
-                            name: Some(stringify!(#field_name)),
-                            value: &visit_rs::Static::<#ty>::new(),
-                        }, visitor).await;
+                        {
+                            let named = visit_rs::Named {
+                                name: Some(#renamed_field),
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: &visit_rs::Static::<#ty>::new(),
+                            };
+                            yield visit_rs::VisitAsync::visit_async(&named, visitor).await;
+                        }
                     }
                 });
 
@@ -973,13 +1315,32 @@ fn derive_visit_variant_fields_static_named_async(ast: &DeriveInput, data: &Data
                 }
             }
             Fields::Unnamed(fields) => {
-                let field_visits = fields.unnamed.iter().map(|field| {
+                let field_visits = fields.unnamed.iter().enumerate().map(|(idx, field)| {
                     let ty = &field.ty;
+                    let metadata_ref = if !variant_field_metas[variant_idx][idx].is_empty() {
+                        let metas = &variant_field_metas[variant_idx][idx];
+                        let count = metas.len();
+                        quote! {
+                            if cfg!(feature = "meta") {
+                                const META: [visit_rs::metadata::AttributeMeta; #count] = [#(#metas),*];
+                                &META
+                            } else {
+                                &[]
+                            }
+                        }
+                    } else {
+                        quote! { &[] }
+                    };
                     quote! {
-                        yield visit_rs::VisitAsync::visit_async(&visit_rs::Named {
-                            name: None,
-                            value: &visit_rs::Static::<#ty>::new(),
-                        }, visitor).await;
+                        {
+                            let named = visit_rs::Named {
+                                name: None,
+                                #[cfg(feature = "meta")]
+                                metadata: #metadata_ref,
+                                value: &visit_rs::Static::<#ty>::new(),
+                            };
+                            yield visit_rs::VisitAsync::visit_async(&named, visitor).await;
+                        }
                     }
                 });
 

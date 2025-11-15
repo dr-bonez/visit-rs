@@ -72,6 +72,8 @@ fn test_named_static_with_unsized_str() {
     const STATIC_STR: Static<str> = Static::new();
     let named_static = Named {
         name: Some("my_string"),
+        #[cfg(feature = "meta")]
+        metadata: &[],
         value: &STATIC_STR,
     };
     let result = named_static.visit(&mut visitor);
@@ -84,6 +86,8 @@ fn test_named_static_with_unsized_slice() {
     const STATIC_SLICE: Static<[i32]> = Static::new();
     let named_static = Named {
         name: Some("my_slice"),
+        #[cfg(feature = "meta")]
+        metadata: &[],
         value: &STATIC_SLICE,
     };
     let result = named_static.visit(&mut visitor);
@@ -96,6 +100,8 @@ fn test_named_with_unsized_str() {
     let hello = "hello";
     let named = Named {
         name: Some("greeting"),
+        #[cfg(feature = "meta")]
+        metadata: &[],
         value: hello as &str,
     };
     let result = named.visit(&mut visitor);
@@ -108,6 +114,8 @@ fn test_named_with_unsized_slice() {
     let slice: &[i32] = &[1, 2, 3, 4, 5];
     let named = Named {
         name: Some("numbers"),
+        #[cfg(feature = "meta")]
+        metadata: &[],
         value: slice,
     };
     let result = named.visit(&mut visitor);

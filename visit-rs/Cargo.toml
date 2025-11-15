@@ -8,7 +8,8 @@ repository = "https://github.com/dr-bonez/visit-rs"
 version = "0.1.9"
 
 [features]
-default = ["serde"]
+default = ["serde", "meta"]
+meta = []
 
 [dependencies]
 async-stream = "0.3"
