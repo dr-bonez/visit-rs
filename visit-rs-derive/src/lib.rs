@@ -401,7 +401,7 @@ fn derive_visit_fields_named(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
-    let ident = &ast.ident;
+    let _ident = &ast.ident;
 
     let impl_t = make_impl(
         &ast,
@@ -475,7 +475,7 @@ fn derive_visit_fields_named_async(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
-    let ident = &ast.ident;
+    let _ident = &ast.ident;
 
     let impl_t = make_impl(
         &ast,
@@ -637,7 +637,7 @@ fn derive_visit_fields_static_named(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
-    let ident = &ast.ident;
+    let _ident = &ast.ident;
 
     let impl_t = make_impl(
         &ast,
@@ -729,7 +729,7 @@ fn derive_visit_fields_static_named_async(
     ast: &DeriveInput,
     data: &DataStruct,
 ) -> Result<TokenStream, syn::Error> {
-    let ident = &ast.ident;
+    let _ident = &ast.ident;
 
     let impl_t = make_impl(
         &ast,

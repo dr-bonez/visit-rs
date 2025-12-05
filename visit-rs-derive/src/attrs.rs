@@ -106,17 +106,3 @@ pub fn extract_all_meta(attrs: &[Attribute]) -> Vec<TokenStream> {
         .collect()
 }
 
-/// Generate a const array for AttributeMeta
-pub fn generate_meta_const_array(
-    static_name: &proc_macro2::Ident,
-    metas: &[TokenStream],
-) -> TokenStream {
-    let count = metas.len();
-
-    quote! {
-        #[cfg(feature = "meta")]
-        const #static_name: [visit_rs::metadata::AttributeMeta; #count] = [
-            #(#metas),*
-        ];
-    }
-}

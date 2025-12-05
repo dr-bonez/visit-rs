@@ -719,7 +719,7 @@ fn derive_visit_variant_fields_static_named(
         .collect();
 
     let variant_match_arms = data.variants.iter().enumerate().map(|(variant_idx, variant)| {
-        let variant_name = &variant.ident;
+        let _variant_name = &variant.ident;
         let variant_name_str = get_variant_rename(variant, rename_all_rule);
 
         match &variant.fields {
@@ -1024,7 +1024,7 @@ fn derive_visit_variant_fields_static_async(
     let rename_all_rule = get_rename_all_attribute(ast);
 
     let variant_match_arms = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
+        let _variant_name = &variant.ident;
         let variant_name_str = get_variant_rename(variant, rename_all_rule);
 
         match &variant.fields {
@@ -1272,7 +1272,7 @@ fn derive_visit_variant_fields_static_named_async(
         .collect();
 
     let variant_match_arms = data.variants.iter().enumerate().map(|(variant_idx, variant)| {
-        let variant_name = &variant.ident;
+        let _variant_name = &variant.ident;
         let variant_name_str = get_variant_rename(variant, rename_all_rule);
 
         match &variant.fields {
